@@ -1,0 +1,84 @@
+from .constants import DEVICE_NAME
+
+
+class Unsupported(RuntimeError):
+    def __init__(self, thing) -> None:
+        super().__init__(f"Spyre backend does not support: {thing}")
+
+
+def _autoload():
+    from torch._dynamo.device_interface import register_interface_for_device
+
+    from torch_spyre.utils.device_interface import SpyreInterface
+
+    register_interface_for_device(DEVICE_NAME, SpyreInterface)
+
+    from torch._inductor.codegen.common import (
+        register_backend_for_device,
+        register_device_op_overrides,
+    )
+    from torch_spyre.utils.device_op_overrides import SpyreDeviceOpOverrides
+
+    register_device_op_overrides(
+        device=DEVICE_NAME, device_op_overrides=SpyreDeviceOpOverrides()
+    )
+
+    from .dsc import SuperDSCScheduling
+    from .wrapper import SpyrePythonWrapperCodegen
+
+    register_backend_for_device(
+        DEVICE_NAME, SuperDSCScheduling, SpyrePythonWrapperCodegen
+    )
+
+    # Set all the appropriate state on PyTorch
+    import torch
+
+    # Define Spyre-specific custom ops, decompositions, and lowerings
+    import torch_spyre._inductor.customops  # noqa: F401  # usort: skip
+    import torch_spyre._inductor.decompositions  # noqa: F401  # usort: skip
+    import torch_spyre._inductor.lowering  # noqa: F401  # usort: skip
+    from .fake_ops import SpyreAotAutograd
+    from .tensors import install_spyre_tensors
+
+    # Customize inductor heuristics
+    from .choices import SpyreHeuristics
+
+    torch._inductor.virtualized.V.set_choices_handler(SpyreHeuristics())
+
+    # Customize inductor configuration
+    from .passes import CustomPrePasses, CustomPostPasses
+
+    torch._inductor.config.triton.use_block_ptr = True
+    torch._inductor.config.triton.prefer_nd_tiling = True
+    torch._inductor.config.triton.codegen_upcast_to_fp32 = False
+    torch._inductor.config.split_reductions = False
+    torch._inductor.config.benchmark_harness = False
+    torch._inductor.config.post_grad_custom_pre_pass = CustomPrePasses()
+    torch._inductor.config.post_grad_custom_post_pass = CustomPostPasses()
+
+    # Do not force output tensor strides to conform to eager strides -- hack for dealing with stickified tensors for now.
+    torch._inductor.config.keep_output_stride = False
+
+    from torch._inductor.ir import Loops
+
+    # Force all operations to be realized when LoopLevel IR is initially constructed
+    Loops.has_large_inner_fn = lambda self, threshold=None: True
+
+    from torch._inductor.fx_passes import joint_graph
+
+    # disable mul_softmax_pattern and div_softmax_pattern for now
+    joint_graph.pass_patterns.pop()
+
+    # Replacing this method is our hook for installing Spyre-specific
+    # meta functions and lowerings when compiling fxGraphs for the Spyre device.
+    torch._dynamo.backends.common.aot_autograd = lambda **kwargs: SpyreAotAutograd(
+        **kwargs
+    )
+
+    # Disable fusing of mm + permute/transpose for now.
+    torch._inductor.config.permute_fusion = False
+
+    # Disabled becuase the fake tensor cache doesn't preserve our added spyre_dci field
+    torch._dynamo.config.fake_tensor_cache_enabled = False
+
+    install_spyre_tensors()

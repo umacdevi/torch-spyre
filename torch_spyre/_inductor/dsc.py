@@ -1,0 +1,49 @@
+from typing import Any
+
+from torch._inductor.utils import IndentedBuffer
+from torch._inductor.codegen.simd import SIMDScheduling
+from torch._inductor.utils import (
+    get_kernel_metadata,
+    get_fused_kernel_name,
+)
+from torch._inductor.virtualized import V
+
+from .spyre_kernel import SpyreKernel
+
+
+class SuperDSCScheduling(SIMDScheduling):
+    kernel_type: type[Any] = SpyreKernel
+    dsc_type: str = "sdsc"
+
+    def get_argument_metadata(self, wrapper, kernel) -> str:
+        actuals = kernel.args.python_argdefs()[1]
+        buf = IndentedBuffer()
+        buf.writeline(f"{wrapper.comment} Argument Layouts:")
+        for index, name in enumerate(actuals):
+            arg = V.graph.try_get_buffer(name)
+            if arg:
+                buf.writeline(f"{wrapper.comment}   {index}: {arg.get_layout()}")
+        return buf.getvalue().rstrip()
+
+    def define_kernel(self, src_code, node_schedule, kernel):
+        """Codegen kernel definition to go in output wrapper code"""
+        wrapper = V.graph.wrapper_code
+        if src_code in wrapper.src_to_kernel:
+            kernel_name = wrapper.src_to_kernel[src_code]
+        else:
+            fused_name = get_fused_kernel_name(node_schedule, "original_aten")
+            kernel_name = "_".join(
+                [self.dsc_type, fused_name, wrapper.next_kernel_suffix()]
+            )
+            wrapper.src_to_kernel[src_code] = kernel_name
+            buf = IndentedBuffer()
+            buf.writeline(f"async_compile.{self.dsc_type}('{kernel_name}',")
+            with buf.indent():
+                buf.splice(f"{src_code}")
+            buf.writeline(")")
+            origins, detailed_origins = get_kernel_metadata(node_schedule, wrapper)
+            arginfo = self.get_argument_metadata(wrapper, kernel)
+            metadata_comment = f"{origins}\n{detailed_origins}\n{arginfo}"
+            wrapper.define_kernel(kernel_name, buf.getvalue(), metadata_comment)
+
+        return kernel_name
