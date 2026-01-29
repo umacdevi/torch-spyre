@@ -490,6 +490,38 @@ class TestOps(unittest.TestCase, metaclass=ParameterizedTestMeta):
             },
         },
         (
+            "test_unsqueeze",
+            "test_unsqueeze_cpu",
+        ): {
+            "param_sets": {
+                "input_1": (cached_randn((8, 64), dtype=torch.float16), 0),
+                "input_2": (cached_randn((1, 64), dtype=torch.float16), 0),
+                "input_3": (cached_randn((5, 64), dtype=torch.float16), 0),
+                "input_4": (cached_randn((8, 8), dtype=torch.float16), 0),
+                "input_5": (cached_randn((1, 8), dtype=torch.float16), 0),
+                "input_6": (cached_randn((13, 18), dtype=torch.float16), 0),
+                "input_7": (cached_randn((3, 4), dtype=torch.float16), 0),
+                "input_8": (cached_randn((1, 3), dtype=torch.float16), 0),
+                "input_9": (cached_randn((64), dtype=torch.float16), 0),
+                "input_10": (cached_randn((8, 64), dtype=torch.float16), 1),
+                "input_11": (cached_randn((1, 64), dtype=torch.float16), 1),
+                "input_12": (cached_randn((5, 64), dtype=torch.float16), 1),
+                "input_13": (cached_randn((8, 8), dtype=torch.float16), 1),
+                "input_14": (cached_randn((1, 8), dtype=torch.float16), 1),
+                "input_15": (cached_randn((13, 18), dtype=torch.float16), 1),
+                "input_16": (cached_randn((3, 4), dtype=torch.float16), 1),
+                "input_17": (cached_randn((1, 3), dtype=torch.float16), 1),
+                "input_18": (cached_randn((7), dtype=torch.float16), 0),
+                "input_19": (cached_randn((1,3,4), dtype=torch.float16), 0),
+                "input_20": (cached_randn((1,3,4), dtype=torch.float16), 1),
+                "input_21": (cached_randn((1,3,4), dtype=torch.float16), 2),
+                "input_22": (cached_randn((8,8,64), dtype=torch.float16), 0),
+                "input_23": (cached_randn((8,8,64), dtype=torch.float16), 1),
+                "input_24": (cached_randn((8,8,64), dtype=torch.float16), 2),
+            },
+        },
+        
+        (
             "test_new_ones",
             "test_new_ones_cpu",
         ): {
@@ -693,6 +725,13 @@ class TestOps(unittest.TestCase, metaclass=ParameterizedTestMeta):
             return torch.arange(*args, dtype=torch.float16, device=device)
 
         compare_with_cpu(fn, needs_device=True)
+
+    @pytest.mark.filterwarnings("ignore::torch_spyre.fallbacks.FallbackWarning")
+    def test_unsqueeze_cpu(self, *args):
+        def fn(*args, device=None):
+            return torch.unsqueeze(*args)
+
+        compare_with_cpu(fn, *args, needs_device=True)
 
     def test_new_ones_cpu(self, x, y):
         compare_with_cpu(lambda x: x.new_ones((x.size())), x)
