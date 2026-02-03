@@ -144,6 +144,45 @@ def lower_bmm(x, y):
 
     return result
 
+@register_spyre_lowering(torch.ops.aten.convolution.default)
+def lower_convolution(x, w, bias, stride, padding, dilation, transposed, output_padding, groups):
+    N, C_in, H_in, W_in = x.get_size()
+    C_out, _, K_h, K_w = w.get_size()
+
+    #Output dimensions
+    H_out = (H_in + 2 * padding[0] - K_h) // stride[0] + 1
+    W_out = (W_in + 2 * padding[1] - K_w) // stride[1] + 1
+
+    def inner_fn(index, reduction_index):
+        n, co, ho, wo = index
+        ci, kh, kw = reduction_index
+
+        # Map output indices to input indices
+        in_h = ho * stride[0] + kh - padding[0]
+        in_w = wo * stride[1] + kw - padding[1]
+
+        # Handle out-of-bounds
+        # valid = (in_h >= 0) & (in_h < H_in) & (in_w >= 0) & (in_w < W_in)
+        inp_val = ops.load(x.get_name(), (n*C_in*H_in*W_in) + (ci*H_in*W_in) + (in_h*W_in) + in_w)
+        w_val = ops.load(w.get_name(), (co*C_in*K_h*K_w) + (ci*K_h*K_w) + (kh*K_w) + kw)
+
+        return inp_val*w_val
+
+    result = Reduction.create(
+        reduction_type=DEPTHWISE_CONV2D_OP,
+        input_node=[x, w],
+        device=x.get_device(),
+        dst_dtype=x.get_dtype(),
+        src_dtype=x.get_dtype(),
+        inner_fn=inner_fn,
+        ranges=[N, C_out, H_out, W_out],  # B, M, N
+        reduction_ranges=[C_in, K_h, K_w],  # K
+    )
+
+    result.realize()
+
+    return result
+
 
 @register_spyre_lowering(torch.ops.spyre.swap)
 def lower_swap(x):
