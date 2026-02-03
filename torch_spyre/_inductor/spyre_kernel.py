@@ -533,16 +533,27 @@ class SpyreKernel(SIMDKernel[CSEVariable]):
             )
         elif value.op == DEPTHWISE_CONV2D_OP:
             if (
-                len(value.arguments[0].arguments)  < 2
+                len(value.arguments[0].arguments) < 2
                 or (not isinstance(value.arguments[0].arguments[0], TensorAccess))
                 or (not isinstance(value.arguments[0].arguments[1], TensorAccess))
             ):
-                raise Unsupported(f"invalid bdepthwiseconv2dnative arguments {value.arguments}")
+                raise Unsupported(
+                    f"invalid bdepthwiseconv2dnative arguments {value.arguments}"
+                )
             x = value.arguments[0].arguments[0]
             w = value.arguments[0].arguments[1]
             di_x = self.analyze_index_expr(x.index)  # type: ignore[union-attr]
             di_w = self.analyze_index_expr(w.index)  # type: ignore[union-attr]
-            di = [di_x[0], di_x[1], di_x[2], di_x[3], di_w[0], di_w[1], di_w[2], di_w[3]]
+            di = [
+                di_x[0],
+                di_x[1],
+                di_x[2],
+                di_x[3],
+                di_w[0],
+                di_w[1],
+                di_w[2],
+                di_w[3],
+            ]
             print(f"In store_reduction: di: {di}")
             args = [
                 create_tensor_arg(True, actuals.index(x.name), x.layout),
@@ -556,7 +567,7 @@ class SpyreKernel(SIMDKernel[CSEVariable]):
             ]
             self.kernel_specs.append(
                 create_kernel_spec(value.op, True, di, args, scales, op_info)
-            )            
+            )
         else:
             # All other reductions have exactly one input which is a tensor
             if (not len(value.arguments) == 1) or (

@@ -144,12 +144,15 @@ def lower_bmm(x, y):
 
     return result
 
+
 @register_spyre_lowering(torch.ops.aten.convolution.default)
-def lower_convolution(x, w, bias, stride, padding, dilation, transposed, output_padding, groups):
+def lower_convolution(
+    x, w, bias, stride, padding, dilation, transposed, output_padding, groups
+):
     N, C_in, H_in, W_in = x.get_size()
     C_out, _, K_h, K_w = w.get_size()
 
-    #Output dimensions
+    # Output dimensions
     H_out = (H_in + 2 * padding[0] - K_h) // stride[0] + 1
     W_out = (W_in + 2 * padding[1] - K_w) // stride[1] + 1
 
@@ -163,10 +166,15 @@ def lower_convolution(x, w, bias, stride, padding, dilation, transposed, output_
 
         # Handle out-of-bounds
         # valid = (in_h >= 0) & (in_h < H_in) & (in_w >= 0) & (in_w < W_in)
-        inp_val = ops.load(x.get_name(), (n*C_in*H_in*W_in) + (ci*H_in*W_in) + (in_h*W_in) + in_w)
-        w_val = ops.load(w.get_name(), (co*C_in*K_h*K_w) + (ci*K_h*K_w) + (kh*K_w) + kw)
+        inp_val = ops.load(
+            x.get_name(),
+            (n * C_in * H_in * W_in) + (ci * H_in * W_in) + (in_h * W_in) + in_w,
+        )
+        w_val = ops.load(
+            w.get_name(), (co * C_in * K_h * K_w) + (ci * K_h * K_w) + (kh * K_w) + kw
+        )
 
-        return inp_val*w_val
+        return inp_val * w_val
 
     result = Reduction.create(
         reduction_type=DEPTHWISE_CONV2D_OP,
