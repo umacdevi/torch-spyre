@@ -18,7 +18,7 @@ from torch._inductor.ir import Reduction, Pointwise
 from torch._inductor.virtualized import ops
 import torch._inductor.lowering as lowering
 
-from .constants import MATMUL_REDUCTION_OP, BATCH_MATMUL_OP
+from .constants import MATMUL_REDUCTION_OP, BATCH_MATMUL_OP, DEPTHWISE_CONV2D_OP
 from torch_spyre._C import get_elem_in_stick
 from .ir import SpyreReduction
 
