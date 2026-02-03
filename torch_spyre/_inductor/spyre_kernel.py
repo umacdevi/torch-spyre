@@ -35,6 +35,7 @@ from .constants import (
     MATMUL_REDUCTION_OP,
     SPYRE_FP32_OPS,
     BATCH_MATMUL_OP,
+    DEPTHWISE_CONV2D_OP,
     TRANSPOSE_OP,
     CLONE_OP,
 )
