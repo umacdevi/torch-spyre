@@ -17,7 +17,6 @@ CLONE_OP = "clone"
 MATMUL_REDUCTION_OP = "matmul"
 TRANSPOSE_OP = "transpose"
 DEPTHWISE_CONV2D_OP = "depthwiseconv2dnative"
-:
 DEVICE_NAME = "spyre"
 
 
