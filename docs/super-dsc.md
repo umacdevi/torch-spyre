@@ -9,7 +9,7 @@ Scope is limited to the fields that need to be filled from Torch-Spyre
 frontend. It is not intended to serve as a fully-contained standalone
 document, but has to be read along with one or more of the Spec itself,
 actual sdsc.json files, and relevant DeepTools source code. A
-claude-generated SuperDSC class hierarchy can be found
+claude-g enerated SuperDSC class hierarchy can be found
 [here](https://ibm.ent.box.com/file/2168779496917).
 
 This is a working document that is expected to evolve over time (in a
@@ -1042,38 +1042,29 @@ the ordering in memory. How should it be handled depending on the
 position of the dimension in the layout? In general, the structure to
 fill is of the form:
 
-<table style="width:49%;">
-<colgroup>
-<col style="width: 48%" />
-</colgroup>
-<thead>
-<tr>
-<th><p>DIM (e.g."mb"):</p>
-<p>{</p>
-<p>"spatial": 3,</p>
-<p>"temporal": 0,</p>
-<p>"elemArr": 1,</p>
-<p>"padding": "nopad",</p>
-<p>"folds": {</p>
-<p>"dim_prop_func": [</p>
-<p>{ "Affine": {"alpha_":8,"beta_":0} },</p>
-<p>{ "Affine": {"alpha_":0,"beta_":0}},</p>
-<p>{ "Affine": {"alpha_":0,"beta_":0}},</p>
-<p>{ "Affine": {"alpha_":1,"beta_":0}}</p>
-<p>],</p>
-<p>"dim_prop_attr": [</p>
-<p>{"factor_":1,"label_":"core_fold"},</p>
-<p>{"factor_":1,"label_":"corelet_fold"},</p>
-<p>{"factor_":1,"label_":"row_fold"},</p>
-<p>{"factor_":8,"label_":"elem_arr_0"}</p>
-<p>]</p>
-<p>}</p>
-<p>}</p></th>
-</tr>
-</thead>
-<tbody>
-</tbody>
-</table>
+```
+DIM (e.g."mb"):
+        {
+            "spatial": 3,
+            "temporal": 0,
+            "elemArr": 1,
+            "padding": "nopad",
+            "folds": {
+            "dim_prop_func": [
+			    {  "Affine": {"alpha_":8,"beta_":0} },
+			    {  "Affine": {"alpha_":0,"beta_":0}},
+			    {  "Affine": {"alpha_":0,"beta_":0}},
+			    {  "Affine": {"alpha_":1,"beta_":0}}
+			],
+            "dim_prop_attr": [
+			    {"factor_":1,"label_":"core_fold"},
+			    {"factor_":1,"label_":"corelet_fold"},
+			    {"factor_":1,"label_":"row_fold"},
+			    {"factor_":8,"label_":"elem_arr_0"}
+		    ]
+	    }
+	}
+```
 
 coordinates\_::coordInfo has one entry per dimension in scheduleTree’s
 allocate node.
@@ -1104,71 +1095,42 @@ be the scale vector for the output tensor?
 
 The main folding related data structures are as follows:
 
-<table style="width:64%;">
-<colgroup>
-<col style="width: 64%" />
-</colgroup>
-<thead>
-<tr>
-<th><p>class FoldManger {</p>
-<p>FoldFunction&lt;Dtype&gt;* parent_func_ = nullptr;</p>
-<p>fm_dim_prop dim_prop_;</p>
-<p>}</p>
-<p>using fm_dim_prop = std::vector&lt;std::pair&lt;const FoldDimProp*,
-BaseFuncType&gt;&gt;;</p>
-<p>class FoldDimProp {</p>
-<p>unit32_t factor_;</p>
-<p>std::string label_;</p>
-<p>}</p></th>
-</tr>
-</thead>
-<tbody>
-</tbody>
-</table>
+```
+class FoldManger {
+	FoldFunction<Dtype>* parent_func_ = nullptr;
+	fm_dim_prop dim_prop_;
+}
+using fm_dim_prop = std::vector<std::pair<const FoldDimProp*, BaseFuncType>>;
+class FoldDimProp {
+	unit32_t factor_;
+	std::string label_;
+}
+```
 
-<table style="width:64%;">
-<colgroup>
-<col style="width: 64%" />
-</colgroup>
-<thead>
-<tr>
-<th><p>enum class BaseFuncType {</p>
-<p>  Constant = 0,</p>
-<p>  Map = 1,</p>
-<p>  Affine = 2,</p>
-<p>  WkSplit = 3,</p>
-<p>  Unknown = 4</p>
-<p>};</p></th>
-</tr>
-</thead>
-<tbody>
-</tbody>
-</table>
+```
+enum class BaseFuncType {
+  Constant = 0,
+  Map = 1,
+  Affine = 2,
+  WkSplit = 3,
+  Unknown = 4
+};
+```
 
 In the SDSC, these structures are transformed to json of following
 format:
 
-<table style="width:66%;">
-<colgroup>
-<col style="width: 66%" />
-</colgroup>
-<thead>
-<tr>
-<th><p>"dim_prop_func": [</p>
-<p>{</p>
-<p>"Affine": {"alpha_":1,"beta_":0}</p>
-<p>}</p>
-<p>],</p>
-<p>"dim_prop_attr": [</p>
-<p>{"factor_":1,"label_":"time"}</p>
-<p>],</p>
-<p>"data_": {"[0]":"0"}</p></th>
-</tr>
-</thead>
-<tbody>
-</tbody>
-</table>
-
+```
+"dim_prop_func": [
+     {
+        "Affine": {"alpha_":1,"beta_":0}
+     }
+ ],
+ "dim_prop_attr": [
+     {"factor_":1,"label_":"time"}
+  ],
+  "data_": {"[0]":"0"}
+```
 This generic format is used for a few fields such as sdsc.sdscFolds\_,
 scheduleTree.startAddressCoreCorelet,
 scheduleTree.coordinates\_.coordInfo.\<dimname\>.folds. What does the
