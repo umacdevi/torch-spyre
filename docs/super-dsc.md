@@ -973,15 +973,14 @@ processors
 
 #### Padding:
 
-From SDSC Spec:
-
+1.	From SDSC Spec:
 For window/padded operations, padding information should be added to
 both **N\_** and **dataStageParam\_** in sdsc.dscs\_\[0\], capturing
 information about front/back padding, stride, and related kernel
 dimension. If a padded dimension is chunked across cores, front/back
 padding should be set to -1 in **core** datastage.
 
-1.  In convolution, *i* and *j* dimensions of the input and output
+-  In convolution, *i* and *j* dimensions of the input and output
     tensors can differ depending on padding size. If the input tensor is
     not padded or padding is less than **stride**, then *i* and *j*
     dimensions of the output tensor will be smaller than those of the
@@ -993,7 +992,7 @@ padding should be set to -1 in **core** datastage.
     different tensors? Which tensor would the **totalSize\_** field of
     **paddingSizes** correspond to? Input Tensor only?
 
-2.  What should be the value of “padding” field in different
+-   What should be the value of “padding” field in different
     nodes/blocks: scheduleTree\_::allocate,
     coordinates\_::coordInfo::\<dim\> (in, out etc) from the following
     set for the two scenarios above: NOPAD,  LOWERED_PADDED,   
@@ -1003,7 +1002,7 @@ padding should be set to -1 in **core** datastage.
 
 #### Layout Dimorder (layoutDimorder\_):
 
-1.  Should the stick dimension(s) always be the rightmost dimension of
+2.  Should the stick dimension(s) always be the rightmost dimension of
     the \_layoutDimOrder? We see examples of both when this holds and
     does not hold. As we understand, layoutDimOrder\_ represents the
     order of dimensions on the device, with the leftmost dimension being
@@ -1036,7 +1035,7 @@ elements with out=64 elements in the stick, then 
 
 #### Tensor Coordinates
 
-The example in the SDSC Spec is not clear. Does the coordinate sequence
+3. The example in the SDSC Spec is not clear. Does the coordinate sequence
 0, 1, 2, 3, 64, 65, 66, 67, 4, 5, 6, 7, 68, 69, 70, 71 provided denote
 the ordering in memory. How should it be handled depending on the
 position of the dimension in the layout? In general, the structure to
@@ -1080,7 +1079,7 @@ values will be helpful.
 
 #### scale\_:
 
-Can we have some examples where scale\_ is -1? This question is prompted
+4. Can we have some examples where scale\_ is -1? This question is prompted
 by the following:
 
 In matmul (and batch matmul), each output element is obtained by
@@ -1093,7 +1092,7 @@ be the scale vector for the output tensor?
 
 #### Folding:
 
-The main folding related data structures are as follows:
+5. The main folding related data structures are as follows:
 
 ```
 class FoldManger {
