@@ -953,18 +953,18 @@ parameterized SDSC.json** that can execute multiple variants without
 recompilation. Folding information fields track how dimensions are
 "folded" (repeated or time-multiplexed) to support:
 
-1\. **\*\*Time folding\*\*** - Execute operations across multiple
+1\. **Time folding** - Execute operations across multiple
 iterations
 
-2\. **\*\*Space folding\*\*** - Repeat computations on different data
+2\. **Space folding** - Repeat computations on different data
 slices
 
-3\. **\*\*Memory paging\*\*** - Handle data larger than local memory
+3\. **Memory paging** - Handle data larger than local memory
 
-4\. **\*\*Working set reduction\*\*** - Time-multiplex large working
+4\. **Working set reduction** - Time-multiplex large working
 sets
 
-5\. **\*\*Multi-AIU optimization\*\*** - Distribute work across multiple
+5\. **Multi-AIU optimization** - Distribute work across multiple
 processors
 
 ### 
