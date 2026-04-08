@@ -806,15 +806,15 @@ Claude Summary:
 
 **Folding** is a compilation technique that generates a **single parameterized SDSC.json** that can execute multiple variants without recompilation. Folding information fields track how dimensions are "folded" (repeated or time-multiplexed) to support:
 
-1\. **\*\*Time folding\*\*** - Execute operations across multiple iterations
+1\. **Time folding** - Execute operations across multiple iterations
 
-2\. **\*\*Space folding\*\*** - Repeat computations on different data slices
+2\. **Space folding** - Repeat computations on different data slices
 
-3\. **\*\*Memory paging\*\*** - Handle data larger than local memory
+3\. **Memory paging** - Handle data larger than local memory
 
-4\. **\*\*Working set reduction\*\*** - Time-multiplex large working sets
+4\. **Working set reduction** - Time-multiplex large working sets
 
-5\. **\*\*Multi-AIU optimization\*\*** - Distribute work across multiple processors
+5\. **Multi-AIU optimization** - Distribute work across multiple processors
 
 ### 
 
@@ -852,61 +852,41 @@ Where should size be specified?
 
 3.  **The example in the SDSC Spec is not clear. Does the coordinate sequence 0, 1, 2, 3, 64, 65, 66, 67, 4, 5, 6, 7, 68, 69, 70, 71 provided denote the ordering in memory. How should it be handled depending on the position of the dimension in the layout? In general, the structure to fill is of the form:**
 
-> \`\`\`
-
+```
 DIM (e.g."mb"):
-
 {
+  "spatial": 3,
+  "temporal": 0,
+  "elemArr": 1,
+  "padding": "nopad",
+  "folds": {
+  "dim_prop_func": [
+      { "Affine": {"alpha_":8,"beta_":0} },
+      { "Affine": {"alpha_":0,"beta_":0}},
+      { "Affine": {"alpha_":0,"beta_":0}},
+      { "Affine": {"alpha_":1,"beta_":0}}
+  ],
 
-"spatial": 3,
-
-"temporal": 0,
-
-"elemArr": 1,
-
-"padding": "nopad",
-
-"folds": {
-
-"dim_prop_func": \[
-
-{ "Affine": {"alpha\_":8,"beta\_":0} },
-
-{ "Affine": {"alpha\_":0,"beta\_":0}},
-
-{ "Affine": {"alpha\_":0,"beta\_":0}},
-
-{ "Affine": {"alpha\_":1,"beta\_":0}}
-
-\],
-
-"dim_prop_attr": \[
-
-{"factor\_":1,"label\_":"core_fold"},
-
-{"factor\_":1,"label\_":"corelet_fold"},
-
-{"factor\_":1,"label\_":"row_fold"},
-
-{"factor\_":8,"label\_":"elem_arr_0"}
-
-\]
-
+  "dim_prop_attr": [
+      { "factor_":1,"label\_":"core_fold"},
+      { "factor_":1,"label\_":"corelet_fold"},
+      { "factor_":1,"label\_":"row_fold"},
+      { "factor_":8,"label\_":"elem_arr_0"}
+    ]
+  }
 }
 
-}
+```
 
-\`\`\`
-
-coordinates\_::coordInfo has one entry per dimension in scheduleTree’s allocate node.
+coordinates_::coordInfo has one entry per dimension in scheduleTree’s allocate node.
 
 Stick dimension has an additional element in both **dim_prop_func** and **dim_prop_attr** for “**elem_arr_1**”.
 
-Need details on how to determine the values for alpha\_, beta\_ and factor\_ for each type of fold. Its purpose appears to be to determine the offset of any element along the specified dimension of a tensor. A non-trivial and complete example illustrating the determination of values will be helpful.
+Need details on how to determine the values for alpha_, beta_ and factor_ for each type of fold. Its purpose appears to be to determine the offset of any element along the specified dimension of a tensor. A non-trivial and complete example illustrating the determination of values will be helpful.
 
-#### scale\_:
+#### scale_:
 
-4.  **Can we have some examples where scale\_ is -1? This question is prompted by the following:**
+4.  **Can we have some examples where scale_ is -1? This question is prompted by the following:**
 
 In matmul (and batch matmul), each output element is obtained by reducing a (row, column) combination of the input tensors. Using the conventional names of x, mb, in, out for the dimensions, does this mean **in** dimension of the first and second tensors should have a scale of -1, since they are involved in a reduction? Or because these don't vanish in the input tensors should they remain as 1? What should be the scale vector for the output tensor?
 
@@ -914,65 +894,43 @@ In matmul (and batch matmul), each output element is obtained by reducing a (row
 
 5.  **The main folding related data structures are as follows:**
 
-\`\`\`
-
+```
 class FoldManger {
-
-FoldFunction\<Dtype\>\* parent_func\_ = nullptr;
-
-fm_dim_prop dim_prop\_;
-
+  FoldFunction<Dtype>* parent_func_ = nullptr;
+  fm_dim_prop dim_prop_;
 }
 
-using fm_dim_prop = std::vector\<std::pair\<const FoldDimProp\*, BaseFuncType\>\>;
+using fm_dim_prop = std::vector<std::pair<const FoldDimProp*, BaseFuncType>>;
 
 class FoldDimProp {
-
-unit32_t factor\_;
-
-std::string label\_;
-
+  unit32_t factor_;
+  std::string label_;
 }
 
 enum class BaseFuncType {
-
   Constant = 0,
-
   Map = 1,
-
   Affine = 2,
-
   WkSplit = 3,
-
   Unknown = 4
-
 };
-
-\`\`\`
+```
 
 In the SDSC, these structures are transformed to json of following format:
 
-\`\`\`
+```
+"dim_prop_func": [
+  {
+    "Affine": {"alpha_":1,"beta_":0}
+  }
+],
 
-"dim_prop_func": \[
+"dim_prop_attr": [
+  {"factor_":1,"label_":"time"}  
+],
 
-{
-
-"Affine": {"alpha\_":1,"beta\_":0}
-
-}
-
-\],
-
-"dim_prop_attr": \[
-
-{"factor\_":1,"label\_":"time"}
-
-\],
-
-"data\_": {"\[0\]":"0"}
-
-\`\`\`
+"data_": {"[0]":"0"}
+```
 
 **This generic format is used for a few fields such as sdsc.sdscFolds\_, scheduleTree.startAddressCoreCorelet, scheduleTree.coordinates\_.coordInfo.\<dimname\>.folds. What does the generic structure represent and how should it be filled in each case?**
 
@@ -980,45 +938,30 @@ In the SDSC, these structures are transformed to json of following format:
 
 ##### scheduleTree.startAddressCoreCorelet\_:
 
-This field lists the starting memory addresses for each core, corelet, and timesteps for each of the tensors used. Hence, it is part of allocate node of schedule tree. In this case, the dim_prop_func field is almost always set to
+This field lists the starting memory addresses for each core, corelet, and timesteps for each of the tensors used. Hence, it is part of allocate node of schedule tree. In this case, the dim_prop_func field is almost always set as follows.
 
-\`\`\`
-
-> "dim_prop_func": \[
->
-> { "Map": {} },
->
-> { "Const": {} },
->
-> { "Const": {} },
->
-> \].
-
-\`\`\`
+```
+"dim_prop_func": [
+   { "Map": {} },
+   {  "Const": {} },
+]
+```
 
 In the above, the first entry corresponds to core, the second to corelet, and the final to addresses for different times. Only start addresses per core are indicated from the front end. The other two are set to const. dim_prop_attr field has to indicate the splitting factor for cores and corelets, while it is 1 for time from the front end. Example below:
 
-\`\`\`
-
-> "dim_prop_attr": \[
->
-> {"factor\_":20,"label\_":"core"},
->
-> {"factor\_":1,"label\_":"corelet"},
->
-> {"factor\_":1,"label\_":"time"}
->
-> \],
-
-\`\`\`
+```
+"dim_prop_attr": [
+   {"factor_":20,"label_":"core"},
+   {"factor_":1,"label_":"corelet"},
+   {"factor_":1,"label_":"time"}
+],
+```
 
 Now, the Map{} entry in the first structure indicates that the start addresses for the tensor for various cores are provided in the “data\_” map. E.g.:
 
-\`\`\`
-
-> "data\_": {"\[0, 0, 0\]":"0","\[1, 0, 0\]":"0","\[2, 0, 0\]":"0","\[3, 0, 0\]":"0","\[4, 0, 0\]":"0","\[5, 0, 0\]":"128","\[6, 0, 0\]":"128","\[7, 0, 0\]":"128","\[8, 0, 0\]":"128","\[9, 0, 0\]":"128","\[10, 0, 0\]":"256","\[11, 0, 0\]":"256","\[12, 0, 0\]":"256","\[13, 0, 0\]":"256","\[14, 0, 0\]":"256","\[15, 0, 0\]":"384","\[16, 0, 0\]":"384","\[17, 0, 0\]":"384","\[18, 0, 0\]":"384","\[19, 0, 0\]":"384"}
-
-\`\`\`
+```
+ "data_": {"[0, 0, 0]":"0","[1, 0, 0]":"0","[2, 0, 0]":"0","[3, 0, 0]":"0","[4, 0, 0]":"0","[5, 0, 0]":"128","[6, 0, 0]":"128","[7, 0, 0]":"128","[8, 0, 0]":"128","[9, 0, 0]":"128","[10, 0, 0]":"256","[11, 0, 0]":"256","[12, 0, 0]":"256","[13, 0, 0]":"256","[14, 0, 0]":"256","[15, 0, 0]":"384","[16, 0, 0]":"384","[17, 0, 0]":"384","[18, 0, 0]":"384","[19, 0, 0]":"384"}
+```
 
 Rules for determining the addresses depend on how a tensor’s dimensions are split.
 
@@ -1030,53 +973,31 @@ Under scheduleTree, the **dim_prop_func** and **dim_prop_attr** sub-structures a
 
 Each allocate node of scheduleTree\_ (corresponding to a tensor) contains a coordinates\_ sub-field, with the following schema:
 
-\`\`\`
-
-"coordinates\_": {
-
+```
+"coordinates_": {
 "coordInfo": {
-
-\<dim_name\>: {
-
-"spatial": 3,
-
-"temporal": 0,
-
-"elemArr": 1 or 2,
-
-"padding": \<padding type\>,
-
-"folds": {
-
-"dim_prop_func": \[
-
-{ "Affine": {"alpha\_":\<number of cores spanned by each core-wise split\>, "beta\_":0} },
-
-{ "Affine": {"alpha\_":1, "beta\_":0} },
-
-{ "Affine": {"alpha\_":1, "beta\_":0} },
-
-{ "Affine": {"alpha\_":number of lower-most splits, typically 1, "beta\_":0} },
-
-\],
-
-"dim_prop_attr": \[
-
-{"factor\_": \<number of core-wise splits \>, "label\_":"core_fold"},
-
-{"factor\_":\<number of corelet splits\>, "label\_":"corelet_fold"},
-
-{"factor\_":\<number of row splits\>, "label\_":"row_fold"},
-
-{"factor\_":\<number of elements in the lower-most slice\>, "label\_":"elem_arr_0"}
-
-\]
-
-}
-
+  <dim_name>: {
+    "spatial": 3,
+    "temporal": 0,
+    "elemArr": 1 or 2,
+    "padding": <padding type>,
+    "folds": {
+      "dim_prop_func": [
+      { "Affine": {"alpha_":<number of cores spanned by each core-wise split>, "beta_":0} },
+      { "Affine": {"alpha_":1, "beta_":0} },
+      { "Affine": {"alpha_":1, "beta_":0} },
+      { "Affine": {"alpha_":number of lower-most splits, typically 1, "beta_":0} },
+  ],
+    
+  "dim_prop_attr": [
+      {"factor_": <number of core-wise splits >, "label_":"core_fold"},
+      {"factor_":<number of corelet splits>, "label_":"corelet_fold"},
+      {"factor_":<number of row splits>, "label_":"row_fold"},
+      {"factor_":<number of elements in the lower-most slice>, "label_":"elem_arr_0"}
+  ]
+ }
 },
-
-\`\`\`
+```
 
 **coordInfo.spatial** is typically 3, indicating that there are 3 spatial splits, along cores, corelets, and rows.
 
@@ -1090,108 +1011,65 @@ For our example tensor, folds field for various dimensions would be as follows:
 
 For dimension *x*:
 
-\`\`\`
-
+```
 "folds": {
+"dim_prop_func": [
+    { "Affine": {"alpha_":1,"beta_":0} },
+    { "Affine": {"alpha_":0,"beta_":0} },
+    { "Affine": {"alpha_":0,"beta_":0} },
+    { "Affine": {"alpha_":1,"beta_":0} }
+  ],
 
-"dim_prop_func": \[
-
-{ "Affine": {"alpha\_":1,"beta\_":0} },
-
-{ "Affine": {"alpha\_":0,"beta\_":0} },
-
-{ "Affine": {"alpha\_":0,"beta\_":0} },
-
-{ "Affine": {"alpha\_":1,"beta\_":0} }
-
-\],
-
-"dim_prop_attr": \[
-
-{"factor\_":4,"label\_":"core_fold"},
-
-{"factor\_":1,"label\_":"corelet_fold"},
-
-{"factor\_":1,"label\_":"row_fold"},
-
-{"factor\_":1,"label\_":"elem_arr_0"}
-
-\]
-
+"dim_prop_attr": [
+    {"factor_":4,"label_":"core_fold"},
+    {"factor_":1,"label_":"corelet_fold"},
+    {"factor_":1,"label_":"row_fold"},
+    {"factor_":1,"label_":"elem_arr_0"}
+  ]
 }
-
-\`\`\`
+```
 
 For dimension out:
 
-\`\`\`
+```
+"folds": {
+  "dim_prop_func": [
+    { "Affine": {"alpha_":576,"beta_":0} },
+    { "Affine": {"alpha_":0,"beta_":0} },
+    { "Affine": {"alpha_":0,"beta_":0} },
+    { "Affine": {"alpha_":64,"beta_":0} },
+    { "Affine": {"alpha_":1,"beta_":0} }
+  ],
 
-> "folds": {
-
-"dim_prop_func": \[
-
-{ "Affine": {"alpha\_":576,"beta\_":0} },
-
-{ "Affine": {"alpha\_":0,"beta\_":0} },
-
-{ "Affine": {"alpha\_":0,"beta\_":0} },
-
-{ "Affine": {"alpha\_":64,"beta\_":0} },
-
-{ "Affine": {"alpha\_":1,"beta\_":0} }
-
-\],
-
-"dim_prop_attr": \[
-
-{"factor\_":5,"label\_":"core_fold"},
-
-{"factor\_":1,"label\_":"corelet_fold"},
-
-{"factor\_":1,"label\_":"row_fold"},
-
-{"factor\_":9,"label\_":"elem_arr_1"},
-
-{"factor\_":64,"label\_":"elem_arr_0"}
-
-\]
-
+  "dim_prop_attr": [
+    {"factor_":5,"label_":"core_fold"},
+    {"factor_":1,"label_":"corelet_fold"},
+    {"factor_":1,"label_":"row_fold"},
+    {"factor_":9,"label_":"elem_arr_1"},
+    {"factor_":64,"label_":"elem_arr_0"}
+  ]
 }
-
-\`\`\`
+```
 
 Since out dimension is a stick dimension, it also includes details for elem_arr_1.
 
 For dimension *in*:
 
-\`\`\`
-
+```
 "folds": {
+  "dim_prop_func": [
+    { "Affine": {"alpha_":2880,"beta_":0} },
+    { "Affine": {"alpha_":0,"beta_":0} },
+    { "Affine": {"alpha_":0,"beta_":0} },
+    { "Affine": {"alpha_":1,"beta_":0} }
+  ],
 
-"dim_prop_func": \[
-
-{ "Affine": {"alpha\_":2880,"beta\_":0} },
-
-{ "Affine": {"alpha\_":0,"beta\_":0} },
-
-{ "Affine": {"alpha\_":0,"beta\_":0} },
-
-{ "Affine": {"alpha\_":1,"beta\_":0} }
-
-\],
-
-"dim_prop_attr": \[
-
-{"factor\_":1,"label\_":"core_fold"},
-
-{"factor\_":1,"label\_":"corelet_fold"},
-
-{"factor\_":1,"label\_":"row_fold"},
-
-{"factor\_":2880,"label\_":"elem_arr_0"}
-
-\]
-
+  "dim_prop_attr": [
+    {"factor_":1,"label_":"core_fold"},
+    {"factor_":1,"label_":"corelet_fold"},
+    {"factor_":1,"label_":"row_fold"},
+    {"factor_":2880,"label_":"elem_arr_0"}
+  ]
 }
+```
 
-\`\`\`
