@@ -33,6 +33,7 @@ from torch.utils._ordered_set import OrderedSet
 from .spyre_kernel import SpyreKernel
 from .pass_utils import iteration_space
 
+import traceback
 
 class SuperDSCScheduling(BaseScheduling):
     def group_fn(self, sizes):
@@ -92,6 +93,8 @@ class SuperDSCScheduling(BaseScheduling):
         """
         Generate a kernel given a list of pre-fused nodes.
         """
+        print(f"++++++++++++++++++++++ In codegen_node +++++++++++++++++++++++++++++++")
+        traceback.print_stack(limit=7)
         assert self.scheduler
         nodes = [
             node
@@ -106,11 +109,13 @@ class SuperDSCScheduling(BaseScheduling):
         with kernel:
             for node in node_schedule:
                 var_ranges = iteration_space(node)
+                print(f"var_ranges: {var_ranges}")
                 vars = list(var_ranges.keys())
                 index_vars = [
                     vars[: len(node._body.iter_vars)],
                     vars[len(node._body.iter_vars) :],
                 ]
+                print(f"In codegen_node: index_vars: {index_vars}")
                 node.codegen(index_vars)
 
         with V.set_kernel_handler(kernel):
@@ -135,6 +140,9 @@ class SuperDSCScheduling(BaseScheduling):
         """
         Codegen kernel definition to go in output wrapper code
         """
+        print(f"              ++++++++++++++++ In define_kernel() +++++++++++++++++++")
+        print(f"  src_code: {src_code}")
+        traceback.print_stack(limit=5)
         wrapper = V.graph.wrapper_code
         if src_code in wrapper.src_to_kernel:
             kernel_name = wrapper.src_to_kernel[src_code]

@@ -28,6 +28,7 @@ from torch_spyre._inductor.constants import (
     MATMUL_DIM_LABELS,
     CONV2D_DIM_LABELS,
     MATMUL_LAYOUT_LABELS,
+    CONV2D_LAYOUT_LABELS,
     SEGMENT_OFFSETS,
 )
 from torch_spyre._inductor.logging_utils import get_inductor_logger
@@ -35,6 +36,7 @@ from torch_spyre._inductor.op_spec import OpSpec
 from torch_spyre._inductor.op_spec import TensorArg
 
 from .compute_ops import generate_sdsc
+import traceback
 
 logger = get_inductor_logger("codegen.superdsc")
 
@@ -169,21 +171,30 @@ def _calculate_device_stride(dev_dim_idx: int, device_size: list) -> int:
 
 
 def _get_device_dim_order(
-    arg: TensorArg, symbol_mapping: dict
+    arg: TensorArg, symbol_mapping: dict, is_conv2d = False
 ) -> tuple[list[Symbol], Symbol | None]:
     """Return (dim_order, stick_dim) for the arg's device layout after symbol substitution."""
+    print(f"### In _get_device_dim_order: arg: {arg} symbol_mapping: {symbol_mapping} conv: {is_conv2d} #######")
+    #traceback.print_stack(limit=3)
     last_coord = arg.device_coordinates[-1].subs(symbol_mapping)
     free = sorted(last_coord.free_symbols, key=str)
     stick_dim = free[0] if free else None
+    print(f"_get_device_dim_order: last_coord: {last_coord} stick_dim: {stick_dim}")
 
     dim_order: list[Symbol] = []
     for i in range(len(arg.device_coordinates) - 2, -1, -1):
         expr = arg.device_coordinates[i].subs(symbol_mapping)
+        print(f"i: {i} coords: {arg.device_coordinates[i]} expr: {expr} free_symbols: {expr.free_symbols}")
+        #if expr == 0 and is_conv2d:
+        #    dim_order.append("out")
+        #elif expr == 0 and stick_dim is not None and stick_dim not in dim_order and not is_conv2d:
         if expr == 0 and stick_dim is not None and stick_dim not in dim_order:
             dim_order.append(stick_dim)
         for sym in expr.free_symbols:
             if sym not in dim_order:
                 dim_order.append(sym)
+        print(f"dim_order: {dim_order}")
+    print(f"Final dim_order: {dim_order} stick_dim: {stick_dim}")
     return dim_order, stick_dim
 
 
@@ -194,6 +205,7 @@ def _get_layout_label(
     stick_size: int,
     layout_labels: list[str],
 ) -> str:
+    print(f"###In _get_layout_label: layouts: {layouts} dim_order: {dim_order} stick_dim_order: {stick_dim_order} stick_size: {stick_size} layout_labels: {layout_labels}")
     for label, layout in layouts.items():
         if (
             layout["stick_dim_order"] == stick_dim_order
@@ -202,6 +214,7 @@ def _get_layout_label(
         ):
             return label
     label = layout_labels[len(layouts)]
+    print(f"label chosen: {label}")
     layouts[label] = {
         "dim_order": dim_order,
         "stick_dim_order": stick_dim_order,
@@ -250,7 +263,7 @@ def _get_op_dim_labels(ndim: int, is_matmul: bool, is_conv2d: bool) -> list[str]
     if is_matmul:
         return MATMUL_DIM_LABELS[5 - ndim :]
     elif is_conv2d:
-        return CONV2D_DIM_LABELS[6 - ndim :]
+        return CONV2D_DIM_LABELS[7 - ndim :]
 
     return INPUT_DIM_LABELS[: ndim - 1] + OUTPUT_DIM_LABELS[:1]
 
@@ -272,7 +285,7 @@ def _create_sdsc_tensors(
     sdsc_args: list[SDSCArgs] = []
     for arg in op_spec.args:
         addr = None if arg.arg_index < 0 else SEGMENT_OFFSETS[arg.arg_index]
-        dim_order, stick_dim = _get_device_dim_order(arg, symbol_mapping)
+        dim_order, stick_dim = _get_device_dim_order(arg, symbol_mapping, _is_conv(op_spec.op))
         scales: dict = {}
         strides: dict = {}
         offsets: dict = {}
@@ -330,7 +343,8 @@ def _create_sdsc_tensors(
             dim_order,
             effective_stick,
             arg.device_dtype.elems_per_stick(),
-            MATMUL_LAYOUT_LABELS if not use_op_dims else LAYOUT_LABELS,
+            #MATMUL_LAYOUT_LABELS  if not use_op_dims else LAYOUT_LABELS,
+            LAYOUT_LABELS  if use_op_dims else MATMUL_LAYOUT_LABELS if _is_matmul(op_spec.op) else  CONV2D_LAYOUT_LABELS,
         )
         sdsc_args.append(
             SDSCArgs(
@@ -390,7 +404,12 @@ def parse_op_spec(op_spec: OpSpec) -> SDSCSpec:
     is_matmul = _is_matmul(op_spec.op)
     is_conv2d = _is_conv(op_spec.op)
     ndim = len(op_spec.iteration_space)
+
+    print("#### In parse_op_spec ####")
+
     dim_labels = _get_op_dim_labels(ndim, is_matmul, is_conv2d)
+
+    print(f"is_conv: {is_conv2d} parse_op_spec: dim_labels: {dim_labels} iteration_space: {op_spec.iteration_space}")
 
 
     symbol_mapping = {
@@ -400,6 +419,7 @@ def parse_op_spec(op_spec: OpSpec) -> SDSCSpec:
         "symbol mapping: %s",
         ", ".join(f"{k} -> {v}" for k, v in symbol_mapping.items()),
     )
+    print(f"sympbol_mapping: {symbol_mapping}")
 
     sdsc_iteration_space = {
         symbol_mapping[sym]: _concretize_for_sdsc(size)
@@ -417,7 +437,7 @@ def parse_op_spec(op_spec: OpSpec) -> SDSCSpec:
     }
 
     ref_arg = _ref_arg(op_spec)
-    op_dim_order, op_stick_dim = _get_device_dim_order(ref_arg, symbol_mapping)
+    op_dim_order, op_stick_dim = _get_device_dim_order(ref_arg, symbol_mapping, is_conv2d)
 
 
     if op_stick_dim is None:

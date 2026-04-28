@@ -14,7 +14,9 @@
 
 
 from torch_spyre._C import encode_constant, DataFormats
+from torch_spyre._inductor.constants import DEPTHWISE_CONV2D_OP
 from sympy import Symbol
+import traceback
 
 
 def core_idx_to_slice_offset(
@@ -206,6 +208,7 @@ def gen_coord_info_value(
 
 
 def generate_sdsc(sdsc_spec):
+    print(f"In generate_sdsc: {sdsc_spec}")
     out_idx = len(sdsc_spec.args) - 1
     core_id_to_wk_slice = {
         str(c): {
@@ -246,6 +249,14 @@ def generate_sdsc(sdsc_spec):
                                 str(dim) + "_": size
                                 for dim, size in sdsc_spec.iteration_space.items()
                             },
+                            **(
+                                {
+                                "paddingSizes_" :{"i" : {"padFront_" : 1, "padBack_" : 1, "unneededPad_" : 0, "unneededPadFront_" : 0, "unneededPadBack_" : 0, "totalSize_" : 130, "stride_" : 1, "dilation_" : 1, "windowDim_" : "ki"},
+                                                 "j" : {"padFront_" : 1, "padBack_" : 1, "unneededPad_" : 0, "unneededPadFront_" : 0, "unneededPadBack_" : 0, "totalSize_" : 130, "stride_" : 1, "dilation_" : 1, "windowDim_" : "kj"}}
+                                }
+                                if sdsc_spec.opfunc == DEPTHWISE_CONV2D_OP
+                                else {}
+                             ),
                         },
                         "coordinateMasking_": {
                             str(dim): mask_range
@@ -346,10 +357,10 @@ def generate_sdsc(sdsc_spec):
                                         str(dim): gen_coord_info_value(
                                             size=sdsc_spec.iteration_space[dim]
                                             // sdsc_spec.work_slices[dim]
-                                            if (tensor.scales[dim] == 1)
+                                            if (tensor.scales[dim] == 1) and dim in sdsc_spec.iteration_space
                                             else 1,
                                             nsplits=sdsc_spec.work_slices[dim]
-                                            if (tensor.scales[dim] == 1)
+                                            if (tensor.scales[dim] == 1 and dim in sdsc_spec.iteration_space)
                                             else 1,
                                             elems_per_stick=tensor.data_format.elems_per_stick(),
                                             is_stick_dim=(

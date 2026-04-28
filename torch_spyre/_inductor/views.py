@@ -82,14 +82,21 @@ def compute_coordinates(
     assert all(isinstance(s, (int, sympy.Integer)) for s in size), (
         f"compute_coordinates requires concrete sizes, got {size}"
     )
+
+    print(f"In compute_coordinates: size: {size} stride: {stride} var_ranges: {var_ranges} index: {index}")
     # find stride immediately strictly larger that dim stride
     n = len(size)
     next_stride = [sympy.oo] * n
     for i in range(n):
         for j in range(n):
             # n^2 is ok since n is small
-            if next_stride[i] > stride[j] and stride[j] > stride[i] and size[j] > 1:
+            ## Uma: Don't require size[j] > 1 for next_stride calculation
+            #if next_stride[i] > stride[j] and stride[j] > stride[i] and size[j] > 1:
+            print(f"i: {i}, j: {j}, stride[i]: {stride[i]}, stride[j]: {stride[j]}, next_stride[i]: {next_stride[i]}")
+            if next_stride[i] > stride[j] and stride[j] > stride[i]:  ## and (size[j] > 1 or j != n-3):
+                print(f"Updating next_stride to stride[j]: {stride[j]}")
                 next_stride[i] = stride[j]
+    print(f"compute_coordinates: next_stride: {next_stride}")
     # compute coordinate expressions
     coordinates = [sympy.S.Zero] * n
 
@@ -101,21 +108,69 @@ def compute_coordinates(
         concrete_step = _concretize_for_cmp(step)
         concrete_limit = _concretize_for_cmp(limit)
 
+    '''
+    vars = index.free_symbols
+    for var in vars:
+        print(f"#var: {var} range: {var_ranges[var]}")
+        ## Uma MODIFIED: Don't skip variables with range=1
+        # if var_ranges[var] <= 1:  ## Uma
+            # continue  # ignore var with trivial range
+        # isolate current var
+        term = index.subs({v: 0 for v in vars - {var}})
+        print(f"term: {term}")
+        # compute index({var=1}) and index({var=var_ranges[var]})
+        # TODO: handle non-zero offset in index
+        # https://github.com/torch-spyre/torch-spyre/issues/1333
+        assert term.subs(var, 0) == 0, f"Non-zero offset in index expression {index}"
+        step = term.subs(var, 1)
+
+        ## Uma: Handle range=1 case: the variable still contributes to coordinates
+        ''''''
+        var_range = var_ranges.get(var, 1)
+        if (var_range <=1 ):
+            # For range-1 variables, find which dimension they belong to by stride
+            for dim in range(n):
+                st = stride[dim]
+                if st > 0 and step == st:
+                    # This variable maps directly to this dimension
+                    coordinates[dim] += var
+                    break
+                continue
+        ''''''            
+
+        limit = term.subs(var, var_ranges[var])
+        this_var_range = var_ranges[var]  ## Uma
+        print(f"step: {step} limit: {limit} this_var_range: {this_var_range}")
+    '''
         # find primary dim with largest stride less than or equal to step
         primary_stride = 0
         primary_dim = -1
         for dim in range(n):
-            if size[dim] == 1:
-                continue  # ignore dim with size 1
+            ## MODIFIED Uma: Don't skip dimensions with size=1
+            #if size[dim] == 1:
+                #continue  # ignore dim with size 1
             st = stride[dim]
             if st <= concrete_step and st > primary_stride:
                 # found candidate primary dim
                 primary_stride = st
                 primary_dim = dim
             elif st > concrete_step and st < concrete_limit:
+        ''' stashed changes
+            print(f"dim: {dim} dim_size: {size[dim]} st: {st}")
+            ## Uma
+            #if st <= step and st > primary_stride:
+            if st <= step and (st > primary_stride or (st == primary_stride and size[dim] <= this_var_range)):
+                # found candidate primary dim
+                primary_stride = st
+                primary_dim = dim
+                print(f"Found primary dim candidate: primary_dim: {primary_dim} primary_stride: {primary_stride}")
+            elif st > step and st < limit:
+                print(f"In elif block: next_stride: {next_stride[dim]}")
+        ''' # Stashed changes
                 # var range intersects dim, add term
                 if next_stride[dim] < concrete_limit:
                     # var range overflows dim
+                    print("Var range overflows dim")
                     coordinates[dim] += var * step % next_stride[dim] // st
                 else:
                     coordinates[dim] += var * step // st
@@ -156,6 +211,19 @@ def compute_coordinates(
         limit = term.xreplace({var: range_val})
         add_term(var=var, step=step, limit=limit)
 
+        ''' Stashed changes
+        print(f"next_stride[primary_dim]: {next_stride[primary_dim]}")
+        if next_stride[primary_dim] < limit:
+            coordinates[primary_dim] += (
+                # var range overflows primary dim
+                var * step % next_stride[primary_dim] // primary_stride
+            )
+            print(f"In if block: {var * step % next_stride[primary_dim] // primary_stride}")
+        else: 
+            coordinates[primary_dim] += var * step // primary_stride
+            print(f"In else block: {var * step // primary_stride}")
+        ''' # Stashed changes
+    print(f"compute_coordinates end: coordinates: {coordinates}")
     return coordinates
 
 
@@ -234,14 +302,19 @@ def normalize_coordinates(
     Split dim_size into n according to iteration range of each term.
     Fuse contiguous dimensions if corresponding terms can be fused.
     """
+
+    print(f"+++++++++++++++++++++++++ In normalize_coordinates +++++++++++++++++++++++++++++++++")
     # terms in non-increasing stride order
     terms = []
 
     for coordinate, dim_size in zip(coordinates, size):
+        print(f"coordinate: {coordinate} dim_size: {dim_size}")
         # sympy uses floor to encode integer divisions, remove
         expr = coordinate.replace(sympy.floor, lambda x: x)
+        print(f"expr: {expr}")
         vars = expr.free_symbols
         offset = expr.xreplace({var: sympy.S.Zero for var in vars})
+        print(f"vars: {vars}")
         if len(vars) == 0:
             terms.append(Term(None, None, None, None, dim_size, offset))
             continue
@@ -326,9 +399,15 @@ def normalize_coordinates(
                 fused_terms.append(fused_term)
             fused_term = term
     if fused_term.dim_size > 1 or fused_term.var is not None:
+    ## Uma -- don't omit dims with size 1
+    #if fused_term.dim_size > 1:
+    if fused_term.dim_size > 0:
         fused_terms.append(fused_term)
     # add term for stick dimension
     fused_terms.append(terms[-1])
+
+    print(f"terms: {terms} fused_terms: {fused_terms}")
+    print(f"+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
     return fused_terms
 
@@ -339,6 +418,7 @@ def align_tensors(
 ) -> tuple[
     (dict[sympy.Symbol, tuple[sympy.Expr, int]], list[dict[str, list[sympy.Expr]]])
 ]:
+    print(f"######################## In align_tensors ##############################")
     """
     Transform op iteration space and tensor arguments to satisfy codegen requirements.
     """
@@ -360,6 +440,12 @@ def align_tensors(
     # for each variable collect bounds (den and mod) for all terms involving variable
     # exclude the sick_size resulting from tiling the stick dimension
     splits: dict[sympy.Symbol, sympy.Expr] = {var: set() for var in var_ranges.keys()}
+
+    print(f"Initial Values:")
+    print("==================")
+    print(f"var_ranges: {var_ranges}")
+    print(f"op_it_space_splits: {op_it_space_splits}")
+    print(f"splits: {splits}")
 
     all_terms = []  # terms for each tensor
     stick_dim = []  # stick var for each tensor
@@ -392,19 +478,30 @@ def align_tensors(
             else:
                 tensor["coordinates"][i] = new_var + coord
     for tensor in tensors:
+        print(f"**********************************************")
+        print(f"Tesnor: {tensor}")
         terms = normalize_coordinates(var_ranges, tensor["size"], tensor["coordinates"])
+        print(f"terms from normalize_coordinates: {terms}")
         stick_dim.append(terms[-1].var)
+        print(f"stick_dim: {stick_dim}")
         stick_size.append(terms[-1].dim_size)
+        print(f"stick_size: {stick_size}")
         all_terms.append(terms)
         for num, den, var, mod, dim_size, offset in [astuple(term) for term in terms]:
+            print(f" num: {num} den: {den} var: {var} mod: {mod} dim_size: {dim_size} offset: {offset}")
             if var is not None:
+                print(f"Initial var split: {splits[var]}")
                 if den != stick_size[-1] or var != stick_dim[-1]:
                     # add den to splits unless stick dim and stick size
                     splits[var].add(den)
                 if mod != stick_size[-1] or var != stick_dim[-1]:
                     # add mod to splits unless stick dim and stick size
                     splits[var].add(mod)
+            if var is not None:
+                print(f"Final var split: {splits[var]}")
+        print(f"**********************************************")
 
+    print(f"Final Splits: {splits}")
     # sort splits
     splits = {var: sorted(val) for var, val in splits.items()}
 
@@ -435,20 +532,24 @@ def align_tensors(
             new_op_it_space_splits[var] = (
                 op_it_space_splits[var] if var in op_it_space_splits else 1
             )
+    print(f"new_op_it_space_splits: {new_op_it_space_splits}")
 
     # create new tensors with new sizes and coordinate expressions matching new vars
     new_tensors = []
     for j, terms in enumerate(all_terms):
         size = []
         coordinates = []
+        print(f"#j: {j} terms: {terms}#")
         for num, den, var, mod, dim_size, offset in [
             astuple(term) for term in terms[:-1]
         ]:
+            print(f"In align_tensors: num: {num} den: {den} var: {var} mod: {mod} dim_size: {dim_size} offset: {offset}")
             # for each term except last one (stick dim)
             if var is None:
                 # dimension is not iterated over, keep as is
                 size.append(dim_size)
                 coordinates.append(offset)
+                print(f"var is None case: size: {size} coordinates: {coordinates}")
                 continue
             # decompose dimension according to splits and tiling of stick dim
             low = (
@@ -462,13 +563,30 @@ def align_tensors(
             if low == high:
                 size.append(dim_size)
                 coordinates.append(var + offset)
+            print(f"low: {low} splits[var]: {splits[var]} high: {high}")
+
+            '''
+            ## Uma -- Add special case to to handle the condition low >= mod_idx:
+            if low >= high:
+                # Size-1 dimension: single split point means loop range is empty.
+                # Add the dimension directly with its size and coordinate
+                size.append(dim_size)
+                # Use remapped var if available, otherwise original var
+                coord_var = remap[var][low] if var in remap and low < len(remap[var]) else var
+                coordinates.append(coord_var)
+                print(f"low >= high: coord_var: {coord_var} size: {size} coordinates: {coordinates}")
+            '''
+
             for i in reversed(range(low, high)):
+                print(f"i: {i}")
                 if i == splits[var].index(mod) - 1:
                     # upper bound of iteration range is dim_size * den
                     size.append(dim_size * den // splits[var][i])
+                    print(f" upper bound of iteration range is dim_size * den {dim_size*den} size: {size}")
                 else:
                     # upper bound of iteration range is split
                     size.append(splits[var][i + 1] // splits[var][i])
+                    print(f" Else cse size: {size}")
                 coordinates.append(remap[var][i] + offset // splits[var][i])
                 offset %= splits[var][i]
             if var == stick_dim[j] and den == stick_size[j] and den not in splits[var]:
@@ -476,17 +594,23 @@ def align_tensors(
                 size[-1] //= den
                 (offset, term) = coordinates[-1].as_coeff_Add()
                 coordinates[-1] = term // den + offset
+                print(f"Outer stick dim adjustments: size: {size} coordinates: {coordinates}")
+
             if num > 1:
                 # iteration skips over elements in dim, realize gap as new dimension
                 size.append(num)
                 coordinates.append(sympy.S.Zero)
+                print(f"Appending if num > 1: size: {size} coordinates: {coordinates}")
         # add stick dim
         num, den, var, mod, dim_size, offset = astuple(terms[-1])
         size.append(dim_size)
         coordinates.append(
             (var % dim_size if var is not None else sympy.S.Zero) + offset
         )
+        print(f"After final addition for stick dim: size: {size} coordinates: {coordinates}")
         new_tensors.append({"size": size, "coordinates": coordinates})
+
+    print(f"New tensors: {new_tensors}")
 
     # decide desired rank for all tensors
     rank = 0

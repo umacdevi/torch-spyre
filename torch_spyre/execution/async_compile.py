@@ -52,6 +52,7 @@ class SpyreAsyncCompile:
         generate_bundle(kernel_name, output_dir, op_specs)
 
         # Invoke backend compiler of SDSC Bundle
+        print(f"dxp_standalone invoked with {output_dir}")
         subprocess.run(["dxp_standalone", "--bundle", "-d", output_dir], check=True)
         convert_artifacts(output_dir)
 

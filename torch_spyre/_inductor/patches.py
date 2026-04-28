@@ -20,6 +20,10 @@ from torch._inductor.utils import InputType
 from torch._inductor.virtualized import V
 from typing import Callable, Optional
 
+from torch._inductor.sizevars import SizeVarAllocator
+from torch._inductor.utils import sympy_index_symbol_with_prefix, SymT
+from torch._inductor import dependencies
+
 
 @contextmanager
 def spyre_data_types():
@@ -104,6 +108,64 @@ def enable_spyre_context(
     old_loop = Loops.has_large_inner_fn
     Loops.has_large_inner_fn = lambda self, threshold=None: True
 
+    # === NEW: Preserve size-1 dimensions in index variables ===
+    old_index = Loops._index
+
+    @staticmethod
+    def _spyre_index(ranges, prefix=SymT.INDEX):
+        """
+        Preserve all index variables including those with range=1.
+
+        The default implementation replaces size-1 dims with sympy.S.Zero.
+        Spyre needs all dimensions for correct SDSC coordinate generation.
+        """
+        from torch._inductor.utils import sympy_index_symbol_with_prefix, SymT
+        return [
+            sympy_index_symbol_with_prefix(prefix, n)
+            for n, s in enumerate(ranges)
+        ]
+
+    Loops._index = _spyre_index
+    # === END NEW ===
+
+    # === NEW: Patch _simplify_loops_impl BEFORE Scheduler construction ===
+    def noop_simplify_loops_impl(self, index_vars, sizes, index_formulas):
+        """
+        No-op implementation that preserves all dimensions including size-1.
+        Must be applied before Scheduler construction.
+        """
+        return sizes, lambda x: x, lambda x: x
+
+    old_simplify_loops_impl = SizeVarAllocator._simplify_loops_impl
+    SizeVarAllocator._simplify_loops_impl = noop_simplify_loops_impl
+    # === END NEW ===
+
+
+    ### Prevent size-1 dimension elimination
+    old_simplify_and_reorder = SizeVarAllocator._simplify_loops_impl
+
+    def _spyre_simplify_loops_impl(self, sizes, index_vars, index_formulas):
+        """
+        Preserve all dimensions including size-1.
+        
+        Inductor's default drops size-1 dims and merges contiguous dims.
+        Spyre needs all original dimensions for correct SDSC generation,
+        especially for convolution where G=1 must be retained.
+        """
+        print(f"######## In _spyre_simplify_loops_impl ########################")
+        # Return unchanged - don't filter size-1 dims, don't merge dims
+        return sizes, lambda x: x, lambda x: x
+
+    SizeVarAllocator._simplify_loops_impl = _spyre_simplify_loops_impl
+    ### End of Prevent size-1 dimension elimination
+
+    # === NEW: Prevent index_vars_squeeze from dropping size-1 dims ===
+    old_index_vars_squeeze = dependencies.index_vars_squeeze
+    
+    # Replace with no_squeeze version
+    dependencies.index_vars_squeeze = dependencies.index_vars_no_squeeze
+    # === END NEW ===
+
     from torch._inductor.fx_passes import joint_graph
 
     origin_pass = list(joint_graph.pass_patterns)
@@ -117,6 +179,10 @@ def enable_spyre_context(
     _pre_scheduling_pass = CustomPreSchedulingPasses()
 
     def _spyre_update_scheduler(self: GraphLowering) -> None:
+        # Patch the instance to ensure this specific graph uses noop
+        self.sizevars._simplify_loops_impl = lambda index_vars, sizes, index_formulas: (
+         sizes, lambda x: x, lambda x: x
+        )
         _pre_scheduling_pass(self.operations)
         old_update_scheduler(self)
 

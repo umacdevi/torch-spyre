@@ -31,6 +31,7 @@ from .errors import Unsupported
 import threading
 from .logging_utils import get_inductor_logger
 import logging
+from torch._inductor.virtualized import V, ops
 
 logger = get_inductor_logger("lowering")
 
@@ -266,6 +267,8 @@ def lower_mm(x, y):
 
 @register_spyre_lowering(torch.ops.aten.bmm.default)
 def lower_bmm(x, y):
+
+    print(f"In lower_bmm")
     x.realize()
     y.realize()
     x_loader = x.make_loader()
@@ -345,21 +348,25 @@ def lower_convolution(x, w, bias, stride, padding, dilation, transposed, output_
 
     # Input / weight shapes
     N, C_in, H_in, W_in = x.get_size()
-    C_out, _, K_h, K_w = w.get_size()
+    C_out, G, K_h, K_w = w.get_size()
     print(f"In lower_convolution: N: {N} C_in: {C_in} H_in: {H_in} W_in: {W_in} C_out: {C_out} K_h: {K_h} K_w: {K_w}")
 
     assert C_out == C_in
-    assert groups == C_in
+    #assert groups == C_in
 
     # Output spatial sizes
     H_out = (H_in + 2 * padding[0] - K_h) // stride[0] + 1
     W_out = (W_in + 2 * padding[1] - K_w) // stride[1] + 1
 
+    # Get weight strides to manually compute index
+    w_strides = w.get_stride()  
+
+
     def inner_fn(index, reduction_index):
         # Output indices
         n, c, ho, wo = index
         # Reduction indices
-        kh, kw = reduction_index
+        kh, kw, g = reduction_index
 
         # Compute input coordinates
         hi = ho * stride[0] + kh - padding[0]
@@ -379,7 +386,10 @@ def lower_convolution(x, w, bias, stride, padding, dilation, transposed, output_
         '''
 
         # Depthwise filter: one filter per input channel
-        w_val = w_loader([c, 0, kh, kw])
+        #w_val = w_loader([c, 0, kh, kw])
+        #w_val = w_loader([c, g, kh, kw])
+        w_index = c*w_strides[0] + g*w_strides[1] + kh*w_strides[2] + kw*w_strides[3]
+        w_val = ops.load(w.get_name(), w_index)
 
         return (x_val,w_val)
 
@@ -391,7 +401,7 @@ def lower_convolution(x, w, bias, stride, padding, dilation, transposed, output_
         src_dtype=x.get_dtype(),
         inner_fn=inner_fn,
         ranges=[N, C_out, H_out, W_out],
-        reduction_ranges=[K_h, K_w],
+        reduction_ranges=[K_h, K_w, G],
     )
 
     result.realize()

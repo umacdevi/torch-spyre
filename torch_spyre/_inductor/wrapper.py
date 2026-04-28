@@ -25,7 +25,7 @@ from torch._inductor.virtualized import V
 from torch._inductor.sizevars import SizeVarAllocator
 
 from .stickify import FixedTiledLayout
-
+import traceback
 
 class SpyrePythonWrapperCodegen(PythonWrapperCodegen):
     def __init__(self):
@@ -115,4 +115,8 @@ def noop_simplify_loops_impl(
     entirely visible to Inductor.  Therefore Inductor's understanding of which
     tensor dimensions are actually contiguous is not accurate.
     """
+    print(f"In noop_simplify_loops_impl")
+    print("##=================================##")
+    traceback.print_stack(limit=5)
+    print(f"index_vars: {index_vars} sizes: {sizes} index_formulas: {index_formulas}")
     return sizes, lambda x: x, lambda x: x

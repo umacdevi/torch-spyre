@@ -126,6 +126,7 @@ def device_coordinates(layout: FixedTiledLayout, dep: MemoryDep) -> list[sympy.E
 
 
 def iteration_space(n: SchedulerNode) -> dict[sympy.Symbol, sympy.Expr]:
+    print(f"In iteration_space: SchedulerNode: {n}")
     if isinstance(n.node.data, Pointwise):
         # The iteration space of a Pointwise is that of its output
         return next(iter(n.read_writes.writes)).ranges.copy()
@@ -137,7 +138,9 @@ def iteration_space(n: SchedulerNode) -> dict[sympy.Symbol, sympy.Expr]:
         # Combine ranges from all reads to capture the full iteration space
         result = {}
         for dep in n.read_writes.reads:
+            print(f"dep: {dep} ranges: {dep.ranges}")
             if isinstance(dep, MemoryDep):
+                print(f"Memory dep: {dep} ranges: {dep.ranges}")
                 result.update(dep.ranges)
         return result
         #return next(iter(n.read_writes.reads)).ranges.copy()
