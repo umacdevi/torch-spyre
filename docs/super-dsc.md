@@ -4,6 +4,13 @@ This document is intended to complement the main SDSC Spec by providing any need
 
 This is a working document that is expected to evolve over time (in a crowd-sourced manner within IBM) both in content to capture a good collection of nuanced and non-trivial aspects of SDSC as well as format and organization. Clarifications sought can be added to the [Questions Section](#dscs_idxcomputeop_-class-computeopinfo).
 
+SuperDSC is a json representation of an operation to be performed by the Spyre backend, DeepTools. It also includes specifications of the input and output tensors needed by the operation.
+
+SuperDSC consists of a few top-level fields and an array of structures termed dscs_[] (design  space configs). Each dsc_ entry consists of some leaf (final) fields and a few composite (non-leaf) ones that can be drilled down into.
+
+The usage of a field can be better understood by referring to sample sdsc files.
+
+
 ## Top-Level Fields
 
 Class SuperDsc in @deeptools/dsc/superdsc.h has definitions of top-level fields. Not all fields of that class have been captured here, only the ones seen commonly in SDSC’s generated.
@@ -91,7 +98,7 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 <td>coreletFoldProp_</td>
 <td>--- same as above --</td>
 <td>Factor=2, label=’corelet’</td>
-<td></td>
+<td>Most sdsc’s have corelet factor specified as 1. Should it be 1 or 2?</td>
 </tr>
 <tr>
 <td><ol start="7" type="1">
@@ -122,9 +129,8 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 </ol></td>
 <td>N_</td>
 <td>List all dimensions across tensors used by ops in all dsc_’s in the sdsc. Contains each dimension’s size across all cores. For dimensions that are padded (such as convolution’s image dimensions) padding details are also included.</td>
-<td>Fields of this entry can be found in DataStructDim in dsc/dims.h. Negative value indicates that a dimension is not used. Inline comments explain the purpose of non-intuitive fields such as coreletSplit_ and rowSplit_.</td>
-<td><p>Permissible dims are listed in DataStructDims in @dsc/dims.h.</p>
-<p>Negative value indicates that a dimension is not used.</p></td>
+<td>Permissible fields of this entry can be found in DataStructDim in dsc/dims.h. Negative value indicates that a dimension is not used. Inline comments explain the purpose of non-intuitive fields such as coreletSplit_ and rowSplit_.</td>
+<td></td>
 </tr>
 <tr>
 <td><ol start="10" type="1">
@@ -133,14 +139,14 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 <td>unPadN_</td>
 <td>Probably description of unpadded version of dimensions in N_</td>
 <td></td>
-<td></td>
+<td>Should this have different values than N_ when there is padding?</td>
 </tr>
 <tr>
 <td><ol start="11" type="1">
 <li></li>
 </ol></td>
 <td>numWkSlicesPerDim_</td>
-<td>The number of slices into which each dimension is split. The product of the slices over all dimensions should equal the number of cores (across which the operation is executed).</td>
+<td>A map keyed by the dimension name indicating the number of slices into which each dimension is split. The product of the slices over all dimensions should equal the number of cores (across which the operation is executed).</td>
 <td></td>
 <td></td>
 </tr>
@@ -149,7 +155,7 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 <li></li>
 </ol></td>
 <td>coreIdToWkSlice_</td>
-<td>Map from core id to the slice of a dimension assigned to it. Nested map. See example sdsc’s.</td>
+<td>Map from core id to the slice of a dimension assigned to it. Nested map. Outer key is core id. Inner key is dimension name. See example sdsc's.</td>
 <td></td>
 <td></td>
 </tr>
@@ -244,7 +250,7 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 
 ## Fields of dscs\_:
 
-dscs\_ is an array of structures whose definition in sdsc.json closely mirrors the definition of class DesignSpaceConfig in designspaceconfig.h. dscs\_ array is added to the higher-level sdsc\_ block.
+dscs\_ is an array of structures whose definition in sdsc.json closely mirrors the definition of class DesignSpaceConfig in designspaceconfig.h. dscs\_ array is a part of the top-level sdsc\_ block.
 
 Several fields are described in the SuperDSC bundle specification document. Non-trivial fields not fully described in the specification are provided below. As with the sdsc above, each entry of the array has a name that encloses the fields in the table below. E.g. \[{“bmm”: {}}\]
 
@@ -282,7 +288,7 @@ Several fields are described in the SuperDSC bundle specification document. Non-
 <td style="text-align: center;">dscN_</td>
 <td>Also of type dataStructDim_ (like N_)</td>
 <td>What is the purpose? How is it different from N_.</td>
-<td></td>
+<td>Is this required?</td>
 </tr>
 <tr>
 <td><ol start="3" type="1">
@@ -307,7 +313,8 @@ Several fields are described in the SuperDSC bundle specification document. Non-
 <td><p><strong>ss</strong> stands for steady_state and <strong>el</strong> for epilogue. Related to work division across cores. el will likely be different from ss only when the work division across cores is not balanced.</p>
 <p>From SDSC spec:</p>
 <p>add one entry with key 0, and fill ss_ and el_ with same data (name should be “core”)</p></td>
-<td>When should ss_ and el_ be different?</td>
+<td><p>When should ss_ and el_ be different?</p>
+    <p>Should this have an entry for only core 0?</p></td>
 </tr>
 <tr>
 <td><ol start="5" type="1">
@@ -323,15 +330,18 @@ Several fields are described in the SuperDSC bundle specification document. Non-
 <li></li>
 </ol></td>
 <td style="text-align: center;">primaryDsInfo_</td>
-<td>std::map&lt;DsTypes, PrimaryDsInfo&gt; primaryDsInfo_</td>
-<td><p>One entry for each DsType used in the dsc. Currently defined types are <strong>enum DsTypes { INPUT, OUTPUT, KERNEL, KERNEL_IDX, NOT_SET };</strong></p>
+<td><p>Defines DsType’s used in the dsc. A DsType denotes a tensor type and defines its dimensions, also specifying which among the dimensions is the stick dimension.</p>
+<p>Currently defined types are <strong>enum DsTypes { INPUT, OUTPUT, KERNEL, KERNEL_IDX, NOT_SET };</strong></p></td>
+<td><p> Provides a mapping from the DsType name to PrimaryDsInfo, which captures the details of the DsType as in:
+std::map<DsTypes, PrimaryDsInfo> primaryDsInfo_ </DsTypes>p>
+<p>Contains one entry for each DsType used in the dsc. </p>
 <p>A DsType corresponds to a list of dimensions and stick dimension used by a tensor. Multiple physical tensors can share a DsType.</p></td>
-<td><p>struct PrimaryDsInfo {</p>
-<p>  std::vector&lt;PrimaryDimTypes&gt; layoutDimOrder_;</p>
-<p>  std::vector&lt;PrimaryDimTypes&gt; stickDimOrder_;</p>
-<p>  std::vector&lt;double&gt; stickSize_;</p>
-<p>  std::vector&lt;int&gt; stickRepl_;</p>
-<p>};</p></td>
+<td><p>struct PrimaryDsInfo {<br>
+  std::vector&lt;PrimaryDimTypes&gt; layoutDimOrder_;<br>
+  std::vector&lt;PrimaryDimTypes&gt; stickDimOrder_;<br>
+  std::vector&lt;double&gt; stickSize_;<br>
+  std::vector&lt;int&gt; stickRepl_;<br>
+};</p></td>
 </tr>
 <tr>
 <td><ol start="7" type="1">
@@ -624,8 +634,11 @@ Fields of ScheduleNode of type ALLOCATE. One allocate node needs to be added per
 </ol></td>
 <td style="text-align: center;">layoutDimOrder_</td>
 <td>Order of the dimensions on the device.</td>
-<td></td>
-<td>How exactly to specify? Should it just match the order in which dimensions are specified in SpyreTensorLayout. Should stick dimension always be the last dimension. Answers at <a href="#layout-dimorder-layoutdimorder_">Layout Dimorder</a>.</td>
+<td>The actual layout (beyond a stick) of the tensor is specified (from inner to outer). For example, in a 2D tensor with dimensions out=512, mb=4 elements and out=64 elements in the stick, the tensor will be [stick-out=64][layout-mb=4][layout-out=8]. So the layoutDimOrder_ should be [mb][out] and the size can be [-1, -1] i.e. all elements outside of stick. More details at <a href="#layout-dimorder-layoutdimorder_">Layout Dimorder</a>.</td>
+<td>Is there a way to determine what device layouts to specify for different tensors for them to be compatible with what DeepTools expects.
+E.g., specifying [j, i, mb, in] for both input and output tensors does not produce correct results by specifying [j, I, mb, in] for input and [mb, j, i, in] works.
+</td>
+
 </tr>
 <tr>
 <td><ol start="7" type="1">
