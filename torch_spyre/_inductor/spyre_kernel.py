@@ -34,6 +34,7 @@ from .constants import (
     BATCH_MATMUL_OP,
     IDENTITY_OP,
     RESTICKIFY_OP,
+    DEPTHWISE_CONV2D_OP,
 )
 from .errors import Unsupported
 from .ir import FixedTiledLayout
@@ -370,12 +371,14 @@ class SpyreKernel(Kernel[CSEVariable]):
         # can correctly isolate each loop variable's contribution.
 
         index = concretize_index(tensor.index, set(it_space.keys()))
+        print(f"************************* In SpyreKernel::create_tensor_arg ***************************")
         device_coords = compute_coordinates(
             tensor.layout.device_layout.device_size,
             tensor.layout.device_layout.stride_map,
             it_space,
             index,
         )
+        print(f"create_tensor_arg device_coords: {device_coords}")
         tensor_arg = TensorArg(
             is_input,
             -1,
@@ -384,6 +387,7 @@ class SpyreKernel(Kernel[CSEVariable]):
             device_coords,
             tensor.layout.allocation,
         )
+        print(f"tensor_arg: {tensor_arg}")
         if not tensor.layout.allocation:
             self.spyre_kernel_args.append((name, tensor_arg))
         return tensor_arg
@@ -395,6 +399,8 @@ class SpyreKernel(Kernel[CSEVariable]):
         args: Sequence[TensorArg],
         op_info: dict[str, Any],
     ) -> OpSpec:
+
+        print(f"---------------------- In create_op_spec ----------------------------")
         for arg in args:
             if arg.device_dtype == DataFormats.IEEE_FP32 and op not in SPYRE_FP32_OPS:
                 raise Unsupported(f"{op} on {arg.device_dtype}")
@@ -421,6 +427,8 @@ class SpyreKernel(Kernel[CSEVariable]):
         it_space_extended = {
             k: (v, core_division.get(k, 1)) for k, v in it_space.items()
         }
+
+        print(f"it_space: {it_space} it_space_extended: {it_space_extended}")
 
         return OpSpec(
             op,
@@ -520,15 +528,21 @@ class SpyreKernel(Kernel[CSEVariable]):
     def store_reduction(
         self, name: str, index: sympy.Expr, value: ReductionOp | UnimplementedOp
     ) -> None:
+        print(f"======================== In store_reduction() ============================")
         """Convert an RValue"""
         _ = self.args.output(name)
+        print(f"name: {name} output.name: {self.args.output(name)}")
         buf = V.graph.get_buffer(name)
         layout = buf.get_layout()
+        print(f"buffer: {buf} buffer layout: {layout}")
         if not isinstance(layout, FixedTiledLayout):
             raise Unsupported(f"{name} does not have FixedTiledLayout")
+        print(f"Index before replacement: {index}")
         index = sympy_subs(index, V.graph.sizevars.precomputed_replacements)
+        print(f"after before replacement: {index}")
         dst = TensorAccess(name, index, layout)
         real_dst_name = V.graph.scheduler.mutation_real_name.get(name, name)
+        print(f"dst: {dst} real_dst_name: {real_dst_name}")
         if real_dst_name != name:
             # Skip allocating an output buffer; this name is an alias to another buffer
             V.graph.removed_buffers.add(name)
@@ -548,6 +562,7 @@ class SpyreKernel(Kernel[CSEVariable]):
             )
 
         if value.op == BATCH_MATMUL_OP:
+            print(f"In store_reduction for batch_matmul op: arguments: {value.arguments} len: {len(value.arguments)}")
             if (
                 len(value.arguments) != 2
                 or (not isinstance(value.arguments[0], TensorAccess))
@@ -559,6 +574,27 @@ class SpyreKernel(Kernel[CSEVariable]):
             args = [
                 self.create_tensor_arg(True, x.name, x),
                 self.create_tensor_arg(True, y.name, y),
+                self.create_tensor_arg(False, real_dst_name, dst),
+            ]
+            self.op_specs.append(self.create_op_spec(value.op, True, args, op_info))
+        elif value.op == DEPTHWISE_CONV2D_OP:
+            #traceback.print_stack()
+            print(f"In store_reduction for depthwiseconv2dnative op: arguments: {value.arguments} len: {len(value.arguments)}")
+            if (
+                len(value.arguments)  < 2
+                or (not isinstance(value.arguments[0], TensorAccess))
+                or (not isinstance(value.arguments[1], TensorAccess))
+            ):
+                raise Unsupported(f"invalid bdepthwiseconv2dnative arguments {value.arguments}")
+            x = value.arguments[0]
+            w = value.arguments[1]
+            print("")
+            print("")
+            print(f"In store_reduction: x: {x} x.index: {x.index}")
+            print(f"In store_reduction: dst: {dst} real_dst_name: {real_dst_name}")
+            args = [
+                self.create_tensor_arg(True, x.name, x),
+                self.create_tensor_arg(True, w.name, w),
                 self.create_tensor_arg(False, real_dst_name, dst),
             ]
             self.op_specs.append(self.create_op_spec(value.op, True, args, op_info))
@@ -574,11 +610,14 @@ class SpyreKernel(Kernel[CSEVariable]):
                 self.create_tensor_arg(False, real_dst_name, dst),
             ]
             self.op_specs.append(self.create_op_spec(value.op, True, args, op_info))
+        print(f"+++++++++++++++++++++ End of store_reduction ++++++++++++++++++++++")
 
     def codegen_kernel(self):
         """Codegen the body of this kernel by pretty printing its list of OpSpecs"""
 
+        print(f"             ===================================== In codegen_kernel ======================================")
         for op_spec in self.op_specs:
+            print(f"In codegen_kernel op_spec : {op_spec}")
             simplify_op_spec(op_spec)
 
         def sympy_str(x: sympy.Expr) -> str:
@@ -671,6 +710,8 @@ def simplify_op_spec(op_spec):
             for arg in op_spec.args
         ],
     )
+    print(f"In simplify_op_spec: new_op_space_splits: {new_op_space_splits}")
+    print(f"In simplify_op_spec: new_tensors: {new_tensors}")
     op_spec.iteration_space = new_op_space_splits
     for arg, t in zip(op_spec.args, new_tensors):
         arg.device_size = t["size"]

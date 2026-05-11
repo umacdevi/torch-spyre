@@ -43,7 +43,7 @@ from torch_spyre._C import (
     get_elem_in_stick,
 )
 from .errors import Unsupported
-from .constants import BATCH_MATMUL_OP
+from .constants import BATCH_MATMUL_OP, DEPTHWISE_CONV2D_OP
 from .ir import FixedTiledLayout
 from .pass_utils import (
     SchedNodeArg,
@@ -418,6 +418,7 @@ def reduction_layout(
     restickify_plan: dict[str, list[dict[str, Any]]],
 ) -> FixedTiledLayout:
     data = op.data
+    print(f"## In reduction_layout: op: {op} reduction type: {data.reduction_type}")
     if data.reduction_type == BATCH_MATMUL_OP:
         x = args[0]
         y = args[1]
@@ -515,6 +516,28 @@ def reduction_layout(
         return FixedTiledLayout(
             output.device, output.dtype, output.size, output.stride, stl
         )
+    elif data.reduction_type == DEPTHWISE_CONV2D_OP:
+        x = args[0]
+        x_stl = x.layout.device_layout
+
+        # Check if output spatial dims match input (same padding mode)
+        if list(x.layout.size) == list(output.size):
+            # Exact match - propagate layout directly
+            print(f"## Exact match")
+            stl = SpyreTensorLayout(
+                x_stl.device_size,
+                x_stl.stride_map,
+                get_device_dtype(output.dtype),
+            )
+        else:
+            # Spatial dims differ - compute new layout preserving stick structure
+            # ... use the dim_order approach above ...
+            print(f"## layouts of input and output tensors differ")
+
+        return FixedTiledLayout(
+            output.device, output.dtype, output.size, output.stride, stl
+        )
+
     else:
         x = args[0]
         x_coords = host_coordinates(x.layout, x.dep)
@@ -560,6 +583,7 @@ def generic_layout(op: Operation) -> FixedTiledLayout:
 def propagate_spyre_tensor_layouts(
     operations: list[Operation],
 ) -> None:
+    print(f"== In propagate_spyre_tensor_layouts")
     # Convert InputBuffers from FixedLayout to FixedTiledLayouts
     if len(V.graph.graph_input_names) > 0:
         for name, real_input in zip(V.graph.graph_input_names, V.get_real_inputs()):
@@ -611,6 +635,7 @@ def propagate_spyre_tensor_layouts(
             output_dep = next(iter(rw.writes))
             args = get_mem_deps_from_rw(rw)
             output = op.get_layout()
+            print(f"output layout: {output}")
             if isinstance(op.data, Pointwise):
                 op.layout = pointwise_layout(
                     op, output, output_dep, args, restickify_plan
@@ -619,6 +644,7 @@ def propagate_spyre_tensor_layouts(
                 op.layout = reduction_layout(
                     op, output, output_dep, args, restickify_plan
                 )
+                print(f"reduction layout: {op.layout}")
             else:
                 logger.warning(f"Warning: unhandled node type {type(op.data)}")
         elif isinstance(op, FallbackKernel):
