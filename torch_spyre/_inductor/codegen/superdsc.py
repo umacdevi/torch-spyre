@@ -522,7 +522,7 @@ def parse_op_spec(op_spec: OpSpec) -> SDSCSpec:
 def compile_op_spec(idx: int, op_spec: OpSpec) -> Any:
     sdsc_spec = parse_op_spec(op_spec)
     logger.debug("%s", sdsc_spec)
-    return generate_sdsc(idx, sdsc_spec)
+    #return generate_sdsc(idx, sdsc_spec)
     #generate_sdsc(sdsc_spec)
 
     return {
