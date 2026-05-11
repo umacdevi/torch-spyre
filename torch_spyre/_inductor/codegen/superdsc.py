@@ -1886,4 +1886,3 @@ def compile_op_spec(idx: int, op_spec: OpSpec) -> Any:
         ],
     }
 }
->>>>>>> 0214351 (support for depthwiseconv2d)
