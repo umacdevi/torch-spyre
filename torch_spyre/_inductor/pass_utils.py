@@ -141,12 +141,24 @@ def iter_var_id(stick_expr) -> int:
 
 
 def iteration_space(n: SchedulerNode) -> dict[sympy.Symbol, sympy.Expr]:
+    print(f"In iteration_space: SchedulerNode: {n}")
     if isinstance(n.node.data, Pointwise):
         # The iteration space of a Pointwise is that of its output
         return next(iter(n.read_writes.writes)).ranges.copy()
     elif isinstance(n.node.data, Reduction):
-        # The iteration space of a Reduction is that of its input
-        return next(iter(n.read_writes.reads)).ranges.copy()
+        for i, dep in enumerate(n.read_writes.reads):
+           if isinstance(dep, MemoryDep):
+              print(f"Read {i}: {list(dep.ranges.keys())}")
+
+        # Combine ranges from all reads to capture the full iteration space
+        result = {}
+        for dep in n.read_writes.reads:
+            print(f"dep: {dep} ranges: {dep.ranges}")
+            if isinstance(dep, MemoryDep):
+                print(f"Memory dep: {dep} ranges: {dep.ranges}")
+                result.update(dep.ranges)
+        return result
+        #return next(iter(n.read_writes.reads)).ranges.copy()
     else:
         raise Unsupported("Unexpected node type")
 

@@ -24,7 +24,7 @@ from .ir import SpyreConstantFallback
 
 from typing import Any, Callable, Union
 
-from .constants import BATCH_MATMUL_OP
+from .constants import BATCH_MATMUL_OP, DEPTHWISE_CONV2D_OP, CONV2D_DIM_LABELS
 import torch_spyre._inductor.customops  # noqa: F401
 from torch_spyre.ops.fallbacks import fallback_ops
 from .ir import SpyreReduction
@@ -33,6 +33,7 @@ from .errors import Unsupported
 import threading
 from .logging_utils import get_inductor_logger
 import logging
+from torch._inductor.virtualized import V, ops
 
 logger = get_inductor_logger("lowering")
 
@@ -296,6 +297,8 @@ def lower_mm(x, y):
 
 @register_spyre_lowering(torch.ops.aten.bmm.default)
 def lower_bmm(x, y):
+
+    print(f"In lower_bmm")
     x.realize()
     y.realize()
     x_loader = x.make_loader()
@@ -362,6 +365,104 @@ def lower_bmm(x, y):
         )
 
     return result
+
+
+@register_spyre_lowering(torch.ops.aten.convolution.default)
+def lower_convolution(x, w, bias, stride, padding, dilation, transposed, output_padding, groups):
+    print(f"In lower_convolution: Passed in values: x: {x} w: {w}")
+    print(f"In lower_convolution: bias: {bias} stride: {stride} padding: {padding} dilation: {dilation} transposed: {transposed}, \
+                                  output_padding: {output_padding} groups: {groups}") 
+    x = V.graph.get_buffer(x.realize())
+    w = V.graph.get_buffer(w.realize())
+
+    x_loader = x.make_loader()
+    w_loader = w.make_loader()
+
+    # Input / weight shapes
+    N, C_in, H_in, W_in = x.get_size()
+    C_out, G, K_h, K_w = w.get_size()
+
+    H_in_padded = H_in + 2*padding[0]
+    W_in_padded = W_in + 2*padding[1]
+    print(f"In lower_convolution: N: {N} C_in: {C_in} H_in: {H_in} W_in: {W_in} C_out: {C_out} K_h: {K_h} K_w: {K_w}")
+
+    assert C_out == C_in
+    #assert groups == C_in
+
+    # Output spatial sizes
+    H_out = (H_in + 2 * padding[0] - K_h) // stride[0] + 1
+    W_out = (W_in + 2 * padding[1] - K_w) // stride[1] + 1
+
+    # Get weight strides to manually compute index
+    w_strides = w.get_stride()  
+
+
+    def inner_fn(index, reduction_index):
+        # Output indices
+        n, c, ho, wo = index
+        # Reduction indices
+        kh, kw, g = reduction_index
+
+        # Compute input coordinates
+        hi = ho * stride[0] + kh - padding[0]
+        wi = wo * stride[1] + kw - padding[1]
+
+        #x_val = x_loader([n, c, hi, wi])
+        x_val = x_loader([n, c, ho, wo])
+        '''
+        x_val = ops.where(
+            ops.logical_and(
+                ops.logical_and(hi >= 0, hi < H_in),
+                ops.logical_and(wi >= 0, wi < W_in),
+            ),
+            x_loader([n, c, hi, wi]),
+            ops.constant(0, x.get_dtype()),
+        )
+        '''
+
+        # Depthwise filter: one filter per input channel
+        #w_val = w_loader([c, 0, kh, kw])
+        #w_val = w_loader([c, g, kh, kw])
+        w_index = c*w_strides[0] + g*w_strides[1] + kh*w_strides[2] + kw*w_strides[3]
+        w_val = ops.load(w.get_name(), w_index)
+
+        return (x_val,w_val)
+
+    op_info = {
+    "conv_params": {
+        "stride_i": stride[0],
+        "stride_j": stride[1],
+        "pad_i": padding[0],
+        "pad_j": padding[1],
+        "dilation_i": dilation[0],
+        "dilation_j": dilation[1],
+        "total_size_i": H_in_padded,
+        "total_size_j": W_in_padded,
+        "pad_dim_i": CONV2D_DIM_LABELS[2],
+        "pad_dim_j": CONV2D_DIM_LABELS[3],
+        "window_dim_i": CONV2D_DIM_LABELS[-2],
+        "window_dim_j": CONV2D_DIM_LABELS[-1],
+        #"pad_type": "padded_fullspan_wunneeded",
+        "pad_type": "padded_nozeropad",
+        }
+    }
+
+
+    result = SpyreReduction.create(
+        reduction_type=DEPTHWISE_CONV2D_OP,
+        input_node=[x, w],
+        device=x.get_device(),
+        dst_dtype=x.get_dtype(),
+        src_dtype=x.get_dtype(),
+        inner_fn=inner_fn,
+        ranges=[N, C_out, H_out, W_out],
+        reduction_ranges=[K_h, K_w, G],
+        op_info=op_info
+    )
+
+    result.realize()
+    return result
+
 
 
 @register_spyre_lowering(torch.ops.spyre.exx2)

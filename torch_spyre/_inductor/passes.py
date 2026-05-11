@@ -230,6 +230,7 @@ class CustomPreSchedulingPasses(CustomGraphPass):
         insert_restickify(operations)
         span_reduction(operations)
         work_distribution(operations)
+        #core_division_planning(operations)
         if config.lx_planning:
             scratchpad_planning(operations)
 
