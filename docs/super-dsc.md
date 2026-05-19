@@ -221,7 +221,7 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 <td><strong>coreIdToDscSchedule</strong></td>
 <td>Vector of <strong>DscScheduleStep</strong> schedule steps specified for each core. Defines the execution sequence of operations on each core by specifying which data and dl dsc operations execute on this core, the order they execute in, and data-flow dependencies.</td>
 <td></td>
-<td>Details in <a href="https://ibm.ent.box.com/file/2176044023859">COREIDTODSCSCHEDULE.md</a></td>
+<td>Details in <a href="https://ibm.ent.box.com/file/2176040147721">COREIDTODSCSCHEDULE.md</a></td>
 </tr>
 <tr>
 <td><ol start="19" type="1">
