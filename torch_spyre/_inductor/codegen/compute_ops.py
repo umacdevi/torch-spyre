@@ -354,7 +354,7 @@ def generate_sdsc(idx, sdsc_spec):
                         "scheduleTree_": [
                             {
                                 "nodeType_": "allocate",
-                                "name_": f"allocate-Tensor{i}_{'hbm' if not tensor.allocation else 'lx'}",
+                                "name_": f"allocate-Tensor{i}_{'lx' if 'lx' in tensor.allocation else 'hbm'}",
                                 "prev_": "",
                                 "ldsIdx_": i,
                                 "component_": "hbm" if not tensor.allocation else "lx",
@@ -411,7 +411,7 @@ def generate_sdsc(idx, sdsc_spec):
                                             )
                                             * num_bytes(tensor.data_format)
                                         )
-                                        if not tensor.allocation
+                                        if "lx" not in tensor.allocation
                                         else str(tensor.start_address)
                                         for c in range(sdsc_spec.num_cores)
                                         #  lx addr is baked into tensor.start_addr already
