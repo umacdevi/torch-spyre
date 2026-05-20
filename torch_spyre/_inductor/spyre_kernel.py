@@ -432,6 +432,9 @@ class SpyreKernel(Kernel[CSEVariable]):
             k: (v, work_division.get(k, 1)) for k, v in it_space.items()
         }
 
+        print(f"DEBUG spyre_kernel: op={op} ir_node.data={ir_node.data if hasattr(ir_node, 'data') else 'N/A'}")
+        print(f"it_space keys: {list(it_space.keys())}")
+        print(f"it_space_extended keys: {list(it_space_extended.keys())}")
         print(f"it_space: {it_space} it_space_extended: {it_space_extended}")
 
         return OpSpec(

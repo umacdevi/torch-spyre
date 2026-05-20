@@ -150,13 +150,19 @@ def iteration_space(n: SchedulerNode) -> dict[sympy.Symbol, sympy.Expr]:
            if isinstance(dep, MemoryDep):
               print(f"Read {i}: {list(dep.ranges.keys())}")
 
+        # Get the output ranges (should define the output iteration space)
+        output_ranges = next(iter(n.read_writes.writes)).ranges
+        print(f"Output write ranges: {list(output_ranges.keys())}")
+
         # Combine ranges from all reads to capture the full iteration space
         result = {}
         for dep in n.read_writes.reads:
             print(f"dep: {dep} ranges: {dep.ranges}")
             if isinstance(dep, MemoryDep):
-                print(f"Memory dep: {dep} ranges: {dep.ranges}")
+                print(f"Memory dep: {dep} ranges: {list(dep.ranges.keys())}")
                 result.update(dep.ranges)
+        print(f"Combined iteration space (all deps): {list(result.keys())}")
+        print(f"Sympy symbols: {result}")
         return result
         #return next(iter(n.read_writes.reads)).ranges.copy()
     else:

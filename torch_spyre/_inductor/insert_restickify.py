@@ -231,7 +231,9 @@ def finalize_layouts(operations: list) -> None:
     - Mutation ops: check inputs of MutationLayoutSHOULDREMOVE ops and schedule
       restickifies where the input stick doesn't match the target buffer's stick.
     """
+    print(f"## In finalize_layouts ##")
     for name in V.graph.graph_input_names:
+        print(f"In finalize_layouts: graph_input_name: {name}")
         tensor_box = V.graph.graph_inputs[name]
         if (
             isinstance(tensor_box, TensorBox)
@@ -244,6 +246,7 @@ def finalize_layouts(operations: list) -> None:
                 f"graph input {name} has no committed_stl — optimizer did not run"
             )
             stl = input_buf.committed_stl
+            print(f"Committed stl: {stl} incoming layout: {input_buf.layout}")
             input_buf.layout = _fixed_tiled(input_buf.layout, stl)
             del tensor_box.layouts
 
@@ -257,6 +260,7 @@ def finalize_layouts(operations: list) -> None:
             if hasattr(op, attr):
                 delattr(op, attr)
 
+        print(f"op : {op.get_name()} cost_fn: {cost_fn} op_layouts: {op_layouts} committed: {committed}")
         # Commit the chosen STL and wrap in a FixedTiledLayout
         if op_layouts and not isinstance(op.layout, MutationLayoutSHOULDREMOVE):
             stl = committed if cost_fn else op_layouts[0]
@@ -267,12 +271,15 @@ def finalize_layouts(operations: list) -> None:
         if not cost_fn:
             continue
         for edge, target_stl in cost_fn.required_input_stls(committed):
+            print(f"edge: {vars(edge)} target_stl: {target_stl}")
             input_buf = V.graph.get_buffer(edge.dep.name)
             in_layout = input_buf.get_layout()
             in_stl = in_layout.device_layout
+            print(f"restickify: in_stl: {in_stl} target_stl: {target_stl}")
             restick_stl = edge.layout(in_stl, target_stl)
             if restick_stl is None:
                 continue
+            print(f"restickify succeeded")
             restick_target = _fixed_tiled(in_layout, restick_stl)
             logger.info(
                 f"Injecting restickify on {op.get_name()} input {edge.dep.name}: "
@@ -285,6 +292,7 @@ def finalize_layouts(operations: list) -> None:
         if not isinstance(op.layout, MutationLayoutSHOULDREMOVE):
             continue
         target_layout = op.layout.target.get_layout()
+        print(f"mutation op: {op.get_name()} target_layout: {target_layout}")
         assert isinstance(target_layout, FixedTiledLayout), (
             f"mutation op {op.get_name()} target has no committed FixedTiledLayout"
         )
@@ -303,6 +311,7 @@ def finalize_layouts(operations: list) -> None:
             device_coords = device_coordinates(in_stl, dep)
             target_stick_expr = device_coordinates(target_stl, output_dep)[-1]
             in_stick_expr = device_coords[-1]
+            print(f"host_coords: {host_coords} device_cooords: {device_coords} target_stick_expr: {target_stick_expr} in_stick_expr: {in_stick_expr}")
 
             if in_stick_expr == target_stick_expr:
                 continue

@@ -264,11 +264,17 @@ def _is_conv(op: str) -> bool:
 
 def _get_op_dim_labels(ndim: int, is_matmul: bool, is_conv2d: bool) -> list[str]:
     if is_matmul:
-        return MATMUL_DIM_LABELS[5 - ndim :]
+        result = MATMUL_DIM_LABELS[5 - ndim :]
+        print(f"DEBUG _get_op_dim_labels: is_matmul=True, ndim={ndim}, result={result}")
+        return result
     elif is_conv2d:
-        return CONV2D_DIM_LABELS[6 - ndim :]
+        result = CONV2D_DIM_LABELS[6 - ndim :]
+        print(f"DEBUG _get_op_dim_labels: is_conv2d=True, ndim={ndim}, result={result}")
+        return result
 
-    return INPUT_DIM_LABELS[: ndim - 1] + OUTPUT_DIM_LABELS[:1]
+    result = INPUT_DIM_LABELS[: ndim - 1] + OUTPUT_DIM_LABELS[:1]
+    print(f"DEBUG _get_op_dim_labels: fallback, ndim={ndim}, INPUT_DIM_LABELS[:{ndim-1}]={INPUT_DIM_LABELS[: ndim - 1]}, OUTPUT_DIM_LABELS[:1]={OUTPUT_DIM_LABELS[:1]}, result={result}")
+    return result
 
 
 def _create_sdsc_tensors(
@@ -420,11 +426,20 @@ def parse_op_spec(op_spec: OpSpec) -> SDSCSpec:
     ndim = len(op_spec.iteration_space)
 
     print("#### In parse_op_spec ####")
+    print(f"op_spec.op: {op_spec.op}")
+    print(f"op_spec.is_reduction: {op_spec.is_reduction}")
+    print(f"op_spec.iteration_space: {op_spec.iteration_space}")
+    print(f"op_spec.iteration_space keys: {list(op_spec.iteration_space.keys())}")
+    print(f"len(iteration_space): {ndim}")
 
     dim_labels = _get_op_dim_labels(ndim, is_matmul, is_conv2d)
 
     print(f"is_conv: {is_conv2d} parse_op_spec: dim_labels: {dim_labels} iteration_space: {op_spec.iteration_space}")
+    print(f"len(dim_labels): {len(dim_labels)}, ndim: {ndim}")
 
+    if len(dim_labels) < ndim:
+        print(f"ERROR: Not enough dim_labels ({len(dim_labels)}) for {ndim} iteration space dimensions")
+        raise ValueError(f"Not enough dim_labels: {len(dim_labels)} < {ndim}")
 
     symbol_mapping = {
         sym: Symbol(dim_labels[i]) for i, sym in enumerate(op_spec.iteration_space)
@@ -522,7 +537,7 @@ def parse_op_spec(op_spec: OpSpec) -> SDSCSpec:
 def compile_op_spec(idx: int, op_spec: OpSpec) -> Any:
     sdsc_spec = parse_op_spec(op_spec)
     logger.debug("%s", sdsc_spec)
-    #return generate_sdsc(idx, sdsc_spec)
+    return generate_sdsc(idx, sdsc_spec)
     #generate_sdsc(sdsc_spec)
 
     return {

@@ -193,6 +193,11 @@ def matching_dim(coords: list[sympy.Expr], expr: sympy.Expr) -> Optional[int]:
     if len(expr.free_symbols) != 1:
         return None
     v = next(iter(expr.free_symbols))
+    # First try exact match (for floor/division and other expressions)
+    exact_dims = [d for d, e in enumerate(coords) if expr == e]
+    if len(exact_dims) == 1:
+        return exact_dims[0]
+    # Fall back to range subset check (for Mod expressions)
     dims = [d for d, e in enumerate(coords) if _is_range_subset(expr, e, v)]
     if len(dims) != 1:
         return None
