@@ -67,9 +67,10 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 <li></li>
 </ol></td>
 <td><strong>sdscFoldProps_</strong></td>
-<td><p>Vector of FoldDimProp containing fields factor_ and label_. Most sdsc’s have this filled as "sdscFoldProps_" : [</p>
+<td><p>Vector of FoldDimProp containing fields <b>factor_</b> and <b>label_</b>. Most sdsc’s have this filled as "sdscFoldProps_" : [</p>
 <p>{"factor_" : 1, "label_" : "time"}</p>
-<p>]</p></td>
+<p>]</p>
+<p>Definition can be found in class <strong>FoldDimProp</strong> in @dsc/foldmanager/foldInfrastructure.h</p></td>
 <td>These denote folds over time. The default values are good from front end.</td>
 <td></td>
 </tr>
@@ -87,7 +88,7 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 <li></li>
 </ol></td>
 <td>coreFoldProp_</td>
-<td>Contains subfield <strong>factor</strong> and <strong>label</strong>. Definition can be found in class <strong>FoldDimProp</strong> in @dsc/foldmanager/foldInfrastructure.h</td>
+<td>Contains subfields <strong>factor</strong> and <strong>label</strong>.</td>
 <td><p>From SDSC Spec:</p>
 <p>factor=maxCoreId, label=’core’</p></td>
 <td></td>
@@ -119,7 +120,7 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 <p><strong><mark>From claude:</mark></strong></p>
 <p>For a folded SDSC with multiple fold types, <strong>fold_coord_</strong> stores the index at each fold dimension. Specifies which <strong>unfolded variant</strong> an SDSC represents by storing its <strong>coordinate indices in folded space</strong>.</p></td>
 <td></td>
-<td>This field seems to be populated only for unfolded variants of the SDSC. Is this correct?</td>
+<td>This field seems to be populated only for unfolded variants of the SDSC.</td>
 </tr>
 <tr>
 <td colspan="5"><strong>Dimensions and Work Slicing</strong></td>
@@ -129,7 +130,7 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 <li></li>
 </ol></td>
 <td>N_</td>
-<td>List all dimensions across tensors used by ops in all dsc_’s in the sdsc. Contains each dimension’s size across all cores. For dimensions that are padded (such as convolution’s image dimensions) padding details are also included.</td>
+<td>List of all dimensions across tensors used by ops in all dsc_’s in the sdsc. Contains each dimension’s size across all cores. For dimensions that are padded (such as convolution’s image dimensions) padding details are also included.</td>
 <td>Permissible fields of this entry can be found in DataStructDim in dsc/dims.h. Negative value indicates that a dimension is not used. Inline comments explain the purpose of non-intuitive fields such as coreletSplit_ and rowSplit_.</td>
 <td></td>
 </tr>
@@ -156,7 +157,7 @@ The root key of the SDSC json is name\_ typically indicating the main operation 
 <li></li>
 </ol></td>
 <td>coreIdToWkSlice_</td>
-<td>Map from core id to the slice of a dimension assigned to it. Nested map. Outer key is core id. Inner key is dimension name. See example sdsc's.</td>
+<td>Map from core id to the slice of a dimension assigned to it. Nested map. Outer key is core id. Inner key is dimension name. The slice number assigned to a core ranges from 0 to the total slice count for the dim indicated by numWkSlicesPerDim_. See example sdsc's.</td>
 <td></td>
 <td></td>
 </tr>
@@ -280,7 +281,7 @@ Several fields are described in the SuperDSC bundle specification document. Non-
 <td style="text-align: center;">N_</td>
 <td>Similar to sdsc.N_. Details of dimensions used by a specific dsc_.</td>
 <td>Padding details provided in sub-field <strong>paddingSizes</strong>_ of type DimPaddingSizes (in @dsc/dims.h). One entry per dim that is padded.</td>
-<td>How should entries of paddingSizes_ sub-field be filled?</td>
+<td>See <a href=#padding>Sec. Padding</a> for more details.</td>
 </tr>
 <tr>
 <td><ol start="2" type="1">
