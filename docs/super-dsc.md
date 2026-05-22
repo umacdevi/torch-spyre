@@ -315,7 +315,10 @@ Several fields are described in the SuperDSC bundle specification document. Non-
 <td><p><strong>ss</strong> stands for steady_state and <strong>el</strong> for epilogue. Related to work division across cores. el will likely be different from ss only when the work division across cores is not balanced.</p>
 <p>From SDSC spec:</p>
 <p>add one entry with key 0, and fill ss_ and el_ with same data (name should be “core”)</p></td>
-<td><p>When should ss_ and el_ be different?</p>
+<td>
+   <p>Like N_, padding details for window/padded operations are added to padding sun-fields within dataStageParam_. See See <a href=#padding>Sec. Padding</a> for more details. </p>
+   <p/>
+   <p>When should ss_ and el_ be different?</p>
    </td>
 </tr>
 <tr>
@@ -837,15 +840,36 @@ Claude Summary:
 
 #### Padding:
 
-From SDSC Spec:
+From SDSC Bundle Spec:
 
 1.  **For window/padded operations, padding information should be added to both N\_ and dataStageParam\_ in sdsc.dscs\_\[0\], capturing information about front/back padding, stride, and related kernel dimension. If a padded dimension is chunked across cores, front/back padding should be set to -1 in core datastage.**
 
 <!-- -->
 
-1.  In convolution, *i* and *j* dimensions of the input and output tensors can differ depending on padding size. If the input tensor is not padded or padding is less than **stride**, then *i* and *j* dimensions of the output tensor will be smaller than those of the original input tensor. On the other hand, while a padded input tensor will also be larger than the output tensor, its sizes will be larger than the original size specified by the user. Will these dimensions in the two tensors have the same semantics even if their sizes are different? Can a dimension have different sizes in different tensors? Which tensor would the **totalSize\_** field of **paddingSizes** correspond to? Input Tensor only?
+(a).  In convolution, *i* and *j* dimensions of the input and output tensors can differ depending on padding size. If the input tensor is not padded or padding is less than **stride**, then *i* and *j* dimensions of the output tensor will be smaller than those of the original input tensor. On the other hand, while a padded input tensor will also be larger than the output tensor, its sizes will be larger than the original size specified by the user. Will these dimensions in the two tensors have the same semantics even if their sizes are different? Can a dimension have different sizes in different tensors? Which tensor would the **totalSize\_** field of **paddingSizes** correspond to? Input Tensor only?
 
-2.  What should be the value of “padding” field in different nodes/blocks: scheduleTree\_::allocate, coordinates\_::coordInfo::\<dim\> (in, out etc) from the following set for the two scenarios above: NOPAD,  LOWERED_PADDED,    PADDED_NOZEROPAD,  PADDED_WZEROPAD,     PADDED_FULLSPAN,     PADDED_FULLSPAN_WUNNEEDED. Will be good to know what each padding type means.
+(b).  What should be the value of “padding” field in different nodes/blocks: scheduleTree\_::allocate, coordinates\_::coordInfo::\<dim\> (in, out etc) from the following set for the two scenarios above: NOPAD,  LOWERED_PADDED,    PADDED_NOZEROPAD,  PADDED_WZEROPAD,     PADDED_FULLSPAN,     PADDED_FULLSPAN_WUNNEEDED. Will be good to know what each padding type means.
+
+When a dimension is padded due to window/padded operations like convolution, details of padding need to be specified via the following fields.
+(i) "paddingSizes_": {
+         "<padded dim>": {
+                "padFront_": 0 or 1,
+                "padBack_":  0 or 1,
+                "totalSize_": total size inclusive of padding, 
+                "stride_": <stride applied with the op>,
+                "dilation_": <dilation applied with the op>,
+                "windowDim_": <window dim> e.g. "ki_"
+           }
+
+One set of entries need to be added for each dimension that is padded within the paddingSizes_ structure. paddingSizes_ itself would be a sub-field of both dcs[0].N_ and dcs[0].dataStageParam_. 
+Regardless of whether padding is applied or not in a convolution operation, totalSize_ will correspond to the input size after padding. E.g. for an image of size 128x128, totalSize_ would be 130 with a padding of 1 and 128 without padding. The dimension's size (as specified in N_, dataStageParam_ per se.) will correspond to the output image size and hence 128 with padding=1 and 126 without padding.
+           
+(ii) padding_ sub-field in <a href=#scheduletree_-class-scheduletree>scheduleTree</a>, which can take one of the following values:
+        NOPAD, LOWERED_PADDED, PADDED_NOZEROPAD, PADDED_WZEROPAD, PADDED_FULLSPAN, PADDED_FULLSPAN_WUNNEEDED
+
+     PADDED_NOZEROPAD to be used with conv2d when padding is non-zero.
+     PADDED_FULLSPAN_WUNNEEDED to be used with conv2d when padding is zero.
+   
 
 #### Layout Dimorder (layoutDimorder\_):
 
