@@ -311,12 +311,12 @@ Several fields are described in the SuperDSC bundle specification document. Non-
 <p>Sizes per dimension for a single core.</p>
 <p>Defined in @dsc/dsc2.h.</p>
 <p>Each element in the vector requires fields ss_ and el_, each of type dataStructDim_ (like N_).</p>
-<p>Specifies sizes per dimension for each core.</p></td>
+<p>Specifies sizes per dimension for each core.The overall field is keyed via "0".</p></td>
 <td><p><strong>ss</strong> stands for steady_state and <strong>el</strong> for epilogue. Related to work division across cores. el will likely be different from ss only when the work division across cores is not balanced.</p>
 <p>From SDSC spec:</p>
 <p>add one entry with key 0, and fill ss_ and el_ with same data (name should be “core”)</p></td>
 <td><p>When should ss_ and el_ be different?</p>
-    <p>Should this have an entry for only core 0?</p></td>
+   </td>
 </tr>
 <tr>
 <td><ol start="5" type="1">
@@ -335,7 +335,7 @@ Several fields are described in the SuperDSC bundle specification document. Non-
 <td><p>Defines DsType’s used in the dsc. A DsType denotes a tensor type and defines its dimensions, also specifying which among the dimensions is the stick dimension.</p>
 <p>Currently defined types are <strong>enum DsTypes { INPUT, OUTPUT, KERNEL, KERNEL_IDX, NOT_SET };</strong></p></td>
 <td><p> Provides a mapping from the DsType name to PrimaryDsInfo, which captures the details of the DsType as in:
-std::map<DsTypes, PrimaryDsInfo> primaryDsInfo_ </DsTypes>p>
+std::map<DsTypes, PrimaryDsInfo> primaryDsInfo_ </p>
 <p>Contains one entry for each DsType used in the dsc. </p>
 <p>A DsType corresponds to a list of dimensions and stick dimension used by a tensor. Multiple physical tensors can share a DsType.</p></td>
 <td><p>struct PrimaryDsInfo {<br>
@@ -359,7 +359,7 @@ std::map<DsTypes, PrimaryDsInfo> primaryDsInfo_ </DsTypes>p>
 <li></li>
 </ol></td>
 <td style="text-align: center;">ChipD_, ChipletD_, Cored_, CoreletD_</td>
-<td>All of type DataStructDims</td>
+<td>All of type DataStructDims (like N_)</td>
 <td></td>
 <td>When should these be filled?</td>
 </tr>
@@ -368,7 +368,7 @@ std::map<DsTypes, PrimaryDsInfo> primaryDsInfo_ </DsTypes>p>
 <li></li>
 </ol></td>
 <td style="text-align: center;">B_, T_, Tel_, P_, Pel_</td>
-<td>All of type DataStructDims</td>
+<td>All of type DataStructDims (like N_)</td>
 <td></td>
 <td>When should these be filled?</td>
 </tr>
@@ -388,7 +388,7 @@ std::map<DsTypes, PrimaryDsInfo> primaryDsInfo_ </DsTypes>p>
 </ol></td>
 <td style="text-align: center;">dimToSymbolMapping_</td>
 <td></td>
-<td>See SDSC Spec</td>
+<td>See SDSC Bundle Spec</td>
 <td><p>When are symbolic dimensions required?</p>
 <p>Illustration with examples required.</p></td>
 </tr>
@@ -398,7 +398,7 @@ std::map<DsTypes, PrimaryDsInfo> primaryDsInfo_ </DsTypes>p>
 </ol></td>
 <td style="text-align: center;">constantInfo_</td>
 <td></td>
-<td>See SDSC Spec</td>
+<td>See SDSC Bundle Spec</td>
 <td></td>
 </tr>
 <tr>
@@ -459,17 +459,17 @@ Each entry in labeledDs\_ corresponds to a physical tensor used by the dsc.
 <li></li>
 </ol></td>
 <td style="text-align: center;">dsName</td>
-<td>A distinct name for the tensor. Used to denote the input and output tensors associated with a computeOp_.</td>
+<td>A distinct name for the tensor. Used to identify the input and output tensors associated with a computeOp_.</td>
 <td></td>
 <td><p>Are there other uses?</p>
-<p>The name of the tensor used in computeOp_ seems to append idx&lt;ldsIdx&gt; to the dsName in labeledDs_. E.g., A labeledDS_ with <strong>"dsName_": "convolution-Tensor0"</strong> and <strong>"ldsIdx_": 0</strong> is denoted as <strong>"convolution-Tensor0-idx0".</strong> Is this understanding of this convention correct?</p></td>
+<p>The name of the tensor used in computeOp_ seems to append idx&lt;ldsIdx&gt; to the dsName in labeledDs_. E.g., A labeledDS_ with <strong>"dsName_": "convolution-Tensor0"</strong> and <strong>"ldsIdx_": 0</strong> is denoted as <strong>"convolution-Tensor0-idx0".</strong> </p></td>
 </tr>
 <tr>
 <td><ol start="3" type="1">
 <li></li>
 </ol></td>
 <td style="text-align: center;">dsType</td>
-<td>dsType of this tensor. Should be a type defined in primaryDsInfo_ of the parent dsc_. See <a href="#fields-of-dscs_">section above</a>.</td>
+<td>dsType of this tensor. Should be a type defined in primaryDsInfo_ of the parent dsc_. Refer to primaryDsInfo_ field in <a href="#fields-of-dscs_">section above</a>.</td>
 <td></td>
 <td></td>
 </tr>
@@ -628,7 +628,7 @@ Fields of ScheduleNode of type ALLOCATE. One allocate node needs to be added per
 <p>  PADDED_FULLSPAN,  </p>
 <p>  PADDED_FULLSPAN_WUNNEEDED,</p>
 <p>};</p>
-<p>What do the different types indicate?</p></td>
+<p>See <a href=#padding>Sec. Padding</a> for some description of what the types indicate.</p></td>
 </tr>
 <tr>
 <td><ol start="6" type="1">
@@ -686,7 +686,7 @@ E.g., specifying [j, i, mb, in] for both input and output tensors does not produ
 </ol></td>
 <td style="text-align: center;">backGapCore_</td>
 <td>std::map&lt;PrimaryDimTypes, std::map&lt;int, int&gt;&gt; backGapCore_</td>
-<td>See SDSC Spec</td>
+<td>See SDSC Bundle Spec</td>
 <td>What is the difference between back and front gaps? Illustration with example is required.</td>
 </tr>
 <tr>
@@ -696,7 +696,7 @@ E.g., specifying [j, i, mb, in] for both input and output tensors does not produ
 <td style="text-align: center;"><p>indirectAllocType_</p>
 <p>relatedIndirectAccessAlloc</p></td>
 <td></td>
-<td>See SDSC Spec</td>
+<td>See SDSC Bundle Spec</td>
 <td>More explanation with example desirable</td>
 </tr>
 </tbody>
