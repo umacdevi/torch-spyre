@@ -851,7 +851,10 @@ From SDSC Bundle Spec:
 (b).  What should be the value of “padding” field in different nodes/blocks: scheduleTree\_::allocate, coordinates\_::coordInfo::\<dim\> (in, out etc) from the following set for the two scenarios above: NOPAD,  LOWERED_PADDED,    PADDED_NOZEROPAD,  PADDED_WZEROPAD,     PADDED_FULLSPAN,     PADDED_FULLSPAN_WUNNEEDED. Will be good to know what each padding type means.
 
 When a dimension is padded due to window/padded operations like convolution, details of padding need to be specified via the following fields.
-(i) "paddingSizes_": {
+
+(i)
+```
+      "paddingSizes_": {
          "<padded dim>": {
                 "padFront_": 0 or 1,
                 "padBack_":  0 or 1,
@@ -860,15 +863,21 @@ When a dimension is padded due to window/padded operations like convolution, det
                 "dilation_": <dilation applied with the op>,
                 "windowDim_": <window dim> e.g. "ki_"
            }
-
+```
 One set of entries need to be added for each dimension that is padded within the paddingSizes_ structure. paddingSizes_ itself would be a sub-field of both dcs[0].N_ and dcs[0].dataStageParam_. 
 Regardless of whether padding is applied or not in a convolution operation, totalSize_ will correspond to the input size after padding. E.g. for an image of size 128x128, totalSize_ would be 130 with a padding of 1 and 128 without padding. The dimension's size (as specified in N_, dataStageParam_ per se.) will correspond to the output image size and hence 128 with padding=1 and 126 without padding.
            
 (ii) padding_ sub-field in <a href=#scheduletree_-class-scheduletree>scheduleTree</a>, which can take one of the following values:
-        NOPAD, LOWERED_PADDED, PADDED_NOZEROPAD, PADDED_WZEROPAD, PADDED_FULLSPAN, PADDED_FULLSPAN_WUNNEEDED
-
-     PADDED_NOZEROPAD to be used with conv2d when padding is non-zero.
-     PADDED_FULLSPAN_WUNNEEDED to be used with conv2d when padding is zero.
+```
+NOPAD
+LOWERED_PADDED
+PADDED_NOZEROPAD
+PADDED_WZEROPAD
+PADDED_FULLSPAN
+PADDED_FULLSPAN_WUNNEEDED
+```
+PADDED_NOZEROPAD to be used with conv2d when padding is non-zero.
+PADDED_FULLSPAN_WUNNEEDED to be used with conv2d when padding is zero.
    
 
 #### Layout Dimorder (layoutDimorder\_):
