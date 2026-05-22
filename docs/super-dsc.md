@@ -898,7 +898,7 @@ Where should size be specified?
 
 #### Tensor Coordinates
 
-3.  **The example in the SDSC Spec is not clear. Does the coordinate sequence 0, 1, 2, 3, 64, 65, 66, 67, 4, 5, 6, 7, 68, 69, 70, 71 provided denote the ordering in memory. How should it be handled depending on the position of the dimension in the layout? In general, the structure to fill is of the form:**
+3.  **The example in the SDSC Bundle Spec is not clear. Does the coordinate sequence 0, 1, 2, 3, 64, 65, 66, 67, 4, 5, 6, 7, 68, 69, 70, 71 provided denote the ordering in memory. How should it be handled depending on the position of the dimension in the layout? In general, the structure to fill is of the form:**
 
 ```
 DIM (e.g."mb"):
@@ -932,6 +932,8 @@ Stick dimension has an additional element in both **dim_prop_func** and **dim_pr
 
 Need details on how to determine the values for alpha_, beta_ and factor_ for each type of fold. Its purpose appears to be to determine the offset of any element along the specified dimension of a tensor. A non-trivial and complete example illustrating the determination of values will be helpful.
 
+Some explanation is provided in <a href=#folding-1>Sec. Folding</a> below.
+
 #### scale_:
 
 4.  **Can we have some examples where scale_ is -1? This question is prompted by the following:**
@@ -940,7 +942,7 @@ In matmul (and batch matmul), each output element is obtained by reducing a (row
 
 #### Folding:
 
-5.  **The main folding related data structures are as follows:**
+**The main folding related data structures are as follows:**
 
 ```
 class FoldManger {
@@ -995,7 +997,7 @@ This field lists the starting memory addresses for each core, corelet, and times
 ]
 ```
 
-In the above, the first entry corresponds to core, the second to corelet, and the final to addresses for different times. Only start addresses per core are indicated from the front end. The other two are set to const. dim_prop_attr field has to indicate the splitting factor for cores and corelets, while it is 1 for time from the front end. Example below:
+In dim_prop_attr below, the first entry corresponds to core, the second to corelet, and the final to addresses for different times. Only start addresses per core are indicated from the front end. The other two are set to const. dim_prop_attr field has to indicate the splitting factor for cores and corelets, while it is 1 for time from the front end. Example below:
 
 ```
 "dim_prop_attr": [
