@@ -36,6 +36,7 @@ from torch_spyre._inductor import config as _spyre_config
 from torch_spyre._inductor.logging_utils import get_inductor_logger
 from torch_spyre._inductor.op_spec import OpSpec
 from torch_spyre._inductor.op_spec import TensorArg
+from torch_spyre._inductor.dtype_ops import DtypeOpTable
 
 from .compute_ops import generate_sdsc
 import traceback
@@ -304,61 +305,14 @@ def _is_topk(op: str) -> bool:
 def _is_conv(op: str) -> bool:
     return op in ("depthwiseconv2dnative", "conv2d")
 
-
-def _get_op_dim_labels(ndim: int, is_conv2d: bool) -> list[str]:
-    if is_conv2d:
+def _get_op_dim_labels(ndim: int, is_matmul: bool, is_conv2d: bool) -> list[str]:
+    if is_matmul:
+        return MATMUL_DIM_LABELS[len(MATMUL_DIM_LABELS) - ndim :]
+    elif is_conv2d:
         result = CONV2D_DIM_LABELS[6 - ndim :]
         print(f"DEBUG _get_op_dim_labels: is_conv2d=True, ndim={ndim}, result={result}")
-        return result
-
-    result = INPUT_DIM_LABELS[: ndim - 1] + OUTPUT_DIM_LABELS[:1]
-    print(f"DEBUG _get_op_dim_labels: fallback, ndim={ndim}, INPUT_DIM_LABELS[:{ndim-1}]={INPUT_DIM_LABELS[: ndim - 1]}, OUTPUT_DIM_LABELS[:1]={OUTPUT_DIM_LABELS[:1]}, result={result}")
-    return result
-
-
-def _get_matmul_symbol_mapping(op_spec: OpSpec) -> dict[Symbol, Symbol]:
-    """
-    Assign dim labels in specific order to work around backend bug.
-    https://github.com/torch-spyre/torch-spyre/issues/2070
-    """
-
-    def syms(arg):
-        return {s for c in arg.device_coordinates for s in c.free_symbols}
-
-    inp0, inp1, out = (
-        syms(op_spec.args[0]),
-        syms(op_spec.args[1]),
-        syms(op_spec.args[2]),
-    )
-
-    mapping = {}
-    row_batch_syms = set()
-
-    for sym in op_spec.iteration_space:
-        if sym in inp0 and sym in inp1 and sym in out:
-            row_batch_syms.add(sym)
-        elif sym in inp0 and sym in inp1 and sym not in out:
-            # Reduction dim
-            mapping[sym] = Symbol("in")
-        elif sym not in inp0 and sym in inp1:
-            # Output stick dim
-            mapping[sym] = Symbol("out")
-        else:
-            row_batch_syms.add(sym)
-
-    ordered = list(
-        dict.fromkeys(
-            s
-            for coord in reversed(op_spec.args[2].device_coordinates)
-            for s in coord.free_symbols
-            if s in row_batch_syms
-        )
-    )
-    remaining_labels = MATMUL_DIM_LABELS[: len(MATMUL_DIM_LABELS) - 2]
-    for sym, label in zip(ordered[::-1], remaining_labels[: len(ordered)]):
-        mapping[sym] = Symbol(label)
-
-    return mapping
+    else:
+        return INPUT_DIM_LABELS[: ndim - 1] + OUTPUT_DIM_LABELS[:1]
 
 
 def _create_sdsc_tensors(
@@ -466,7 +420,7 @@ def _create_sdsc_tensors(
 
 
 def _get_op_func(op: str, is_reduction: bool, output_scales: dict) -> str:
-    if op == "to_dtype" or op == "overwrite":
+    if op == "overwrite":
         return IDENTITY_OP
     if (
         is_reduction
@@ -515,10 +469,10 @@ def _extend_matmul_k_to_padded(
 ) -> None:
     """Extend sdsc_iteration_space[K] to K_padded for matmul ops.
 
-    The IR-level padding pass pads y's device_size to K_padded rows but keeps
+    The IR-level padding pass pads y's K dimension to K_padded rows but keeps
     the host iteration space (and op_spec.iteration_space) at K.  This function
-    reads K_padded from y's device_size and updates sdsc_iteration_space[K_sym]
-    before _create_sdsc_tensors runs.
+    computes K_padded = round_up(K, stick_size) and updates
+    sdsc_iteration_space[K_sym] before _create_sdsc_tensors runs.
 
     With sdsc_iteration_space[K_sym] = K_padded:
     - y's dev_dim_size for K == it_dim_size → backGap branch never fires for y.
@@ -563,26 +517,21 @@ def _extend_matmul_k_to_padded(
         )
         return
 
-    # Find K_padded from y's device_size using the same stride_idx formula as
-    # _create_sdsc_tensors: dev_dim_size = device_size[-stride_idx - 2]
-    # where stride_idx is the position of k_sym in y_dim_order.
-    # y has no reduced dims, so stride_dim_order == y_dim_order, and k_sym is
-    # guaranteed to be present (it was just found in y_non_stick_syms ⊆ y_dim_order).
-    stride_idx = y_dim_order.index(k_sym)
-    dev_dim_idx = -stride_idx - 2
-    k_padded = int(y_arg.device_size[dev_dim_idx])
-
+    # Compute K_padded by rounding K up to the next stick boundary.
+    # Reading K_padded from y_arg.device_size would be wrong when y is a view
+    # (e.g. a slice) of a larger buffer: device_size reflects the underlying
+    # allocation's K extent, not the slice's logical K, so it can be larger
+    # than the matmul's actual K and would over-extend the iteration space.
+    stick_size = y_arg.device_dtype.elems_per_stick()
     k_current = sdsc_iteration_space[k_sym]
+    k_padded = ((k_current + stick_size - 1) // stick_size) * stick_size
+
     if k_padded > k_current:
         logger.debug(
-            "_extend_matmul_k_to_padded: extending K %d -> %d "
-            "(sym=%s, y device_size[%d]=%d, stride_idx=%d)",
+            "_extend_matmul_k_to_padded: extending K %d -> %d (sym=%s)",
             k_current,
             k_padded,
             k_sym,
-            dev_dim_idx,
-            k_padded,
-            stride_idx,
         )
         sdsc_iteration_space[k_sym] = k_padded
 
@@ -599,27 +548,22 @@ def parse_op_spec(op_spec: OpSpec) -> SDSCSpec:
     print(f"op_spec.iteration_space keys: {list(op_spec.iteration_space.keys())}")
     print(f"len(iteration_space): {ndim}")
 
-    dim_labels = _get_op_dim_labels(ndim, is_conv2d)
 
     print(f"is_conv: {is_conv2d} parse_op_spec: dim_labels: {dim_labels} iteration_space: {op_spec.iteration_space}")
     print(f"len(dim_labels): {len(dim_labels)}, ndim: {ndim}")
 
-    if len(dim_labels) < ndim:
-        print(f"ERROR: Not enough dim_labels ({len(dim_labels)}) for {ndim} iteration space dimensions")
-        raise ValueError(f"Not enough dim_labels: {len(dim_labels)} < {ndim}")
-
-    if is_matmul:
-        symbol_mapping = _get_matmul_symbol_mapping(op_spec)
-    else:
-        dim_labels = _get_op_dim_labels(ndim)
-        symbol_mapping = {
-            sym: Symbol(dim_labels[i]) for i, sym in enumerate(op_spec.iteration_space)
-        }
+    dim_labels = _get_op_dim_labels(ndim, is_matmul, is_conv2d)
+    symbol_mapping = {
+        sym: Symbol(dim_labels[i]) for i, sym in enumerate(op_spec.iteration_space)
+    }
     logger.debug(
         "symbol mapping: %s",
         ", ".join(f"{k} -> {v}" for k, v in symbol_mapping.items()),
     )
     print(f"sympbol_mapping: {symbol_mapping}")
+    if len(dim_labels) < ndim:
+        print(f"ERROR: Not enough dim_labels ({len(dim_labels)}) for {ndim} iteration space dimensions")
+        raise ValueError(f"Not enough dim_labels: {len(dim_labels)} < {ndim}")
 
     sdsc_iteration_space = {
         symbol_mapping[sym]: _concretize_for_sdsc(size)
@@ -666,7 +610,10 @@ def parse_op_spec(op_spec: OpSpec) -> SDSCSpec:
         dim_splits[missing_dim] = 1
         work_slices[missing_dim] = 1
 
-    if is_matmul:
+    # In case of same type conversion (identity op) user gets compile time error & avoid
+    # changing the padding logic here to fix errors with torch.split() for 3d shapes.
+    is_dtype_op = DtypeOpTable.is_dtype_op(op_spec.op) and op_spec.op != IDENTITY_OP
+    if is_matmul or is_dtype_op:
         pad_args, pad_sdsc_args = list(op_spec.args), args
     elif op_spec.is_reduction or op_spec.op == "overwrite":
         pad_args, pad_sdsc_args = [op_spec.args[0]], [args[0]]

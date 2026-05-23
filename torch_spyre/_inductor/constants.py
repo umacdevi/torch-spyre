@@ -17,6 +17,10 @@ IDENTITY_OP = "identity"
 RESTICKIFY_OP = "ReStickifyOpHBM"
 DEPTHWISE_CONV2D_OP = "depthwiseconv2dnative"
 
+# Type casting operators from deeptools
+DL16TOFP32_OP = "dl16tofp32"
+FP32TODL16_OP = "fp32todl16"
+
 DEVICE_NAME = "spyre"
 
 
@@ -53,6 +57,7 @@ SPYRE_FP32_OPS = [
     "topkvalue",
     "topkindex",
     "floor",
+    "to_dtype",
     "maximum",
     "minimum",
 ]
@@ -66,7 +71,7 @@ CONV2D_LAYOUT_LABELS = ["OUTPUT", "KERNEL", "INPUT", "KERNEL_IDX"]
 
 # Populate more valid labels from deeptools here if needed
 INPUT_DIM_LABELS = ["mb", "x", "y", "i", "j", "ki", "kj"]
+MATMUL_DIM_LABELS = ["ki", "kj", "y", "x", "mb", "out", "in"]
 OUTPUT_DIM_LABELS = ["out"]
-MATMUL_DIM_LABELS = ["x", "mb", "y", "ki", "kj", "out", "in"]
 #CONV2D_DIM_LABELS = ["mb", "in", "i", "j", "out", "ki", "kj"]
 CONV2D_DIM_LABELS = ["mb", "in", "i", "j", "ki", "kj"]
