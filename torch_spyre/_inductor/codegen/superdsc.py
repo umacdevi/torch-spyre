@@ -548,10 +548,6 @@ def parse_op_spec(op_spec: OpSpec) -> SDSCSpec:
     print(f"op_spec.iteration_space keys: {list(op_spec.iteration_space.keys())}")
     print(f"len(iteration_space): {ndim}")
 
-
-    print(f"is_conv: {is_conv2d} parse_op_spec: dim_labels: {dim_labels} iteration_space: {op_spec.iteration_space}")
-    print(f"len(dim_labels): {len(dim_labels)}, ndim: {ndim}")
-
     dim_labels = _get_op_dim_labels(ndim, is_matmul, is_conv2d)
     symbol_mapping = {
         sym: Symbol(dim_labels[i]) for i, sym in enumerate(op_spec.iteration_space)
@@ -560,6 +556,8 @@ def parse_op_spec(op_spec: OpSpec) -> SDSCSpec:
         "symbol mapping: %s",
         ", ".join(f"{k} -> {v}" for k, v in symbol_mapping.items()),
     )
+    print(f"is_conv: {is_conv2d} parse_op_spec: dim_labels: {dim_labels} iteration_space: {op_spec.iteration_space}")
+    print(f"len(dim_labels): {len(dim_labels)}, ndim: {ndim}")
     print(f"sympbol_mapping: {symbol_mapping}")
     if len(dim_labels) < ndim:
         print(f"ERROR: Not enough dim_labels ({len(dim_labels)}) for {ndim} iteration space dimensions")

@@ -17,6 +17,7 @@ import torch
 import torch._dynamo
 from torch._inductor.fx_passes.reinplace import inplaceable_ops, InplaceableOp
 from torch_spyre.ops.eager import compile_once
+from torch_spyre.ops.fallbacks import warn_fallback
 
 from .errors import Unsupported
 
@@ -418,6 +419,34 @@ def _(
 
     return input.new_empty((N, C * K_h * K_w, H_out * W_out))
 
+
+
+@torch.library.custom_op("spyre::reshape_via_cpu", mutates_args=(), device_types="spyre")
+def spyre_reshape_via_cpu(
+    input: torch.Tensor,
+    shape: Sequence[int],
+) -> torch.Tensor:
+    """
+    Reshape operation that executes on CPU to avoid stick-alignment issues.
+
+    When reshaping produces a shape with innermost dimension that doesn't align
+    with stick boundaries (64 elements for fp16), the Inductor coordinate
+    computation fails. This op moves to CPU, reshapes, then moves back to Spyre.
+
+    This is similar to unfold, which also uses CPU fallback for correct layouts.
+    """
+    warn_fallback("torch.ops.spyre.reshape_via_cpu")
+    input_cpu = input.to("cpu")
+    result_cpu = input_cpu.reshape(shape)
+    return result_cpu.to(input.device)
+
+
+@spyre_reshape_via_cpu.register_fake
+def _(
+    input: torch.Tensor,
+    shape: Sequence[int],
+) -> torch.Tensor:
+    return input.new_empty(shape)
 
 
 @torch.library.custom_op("spyre::min_dim_int64_fallback", mutates_args=())

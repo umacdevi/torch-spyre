@@ -816,8 +816,12 @@ def conv2d_via_bmm_decomp(
     )
 
     if groups == 1:
-        weight_2d = weight.reshape(C_out, C_in_per_group * K_h * K_w)
-        output = torch.matmul(weight_2d, patches)
+        #weight_2d = weight.reshape(C_out, C_in_per_group * K_h * K_w)
+        weight_2d = torch.ops.spyre.reshape_via_cpu(weight, (C_out, C_in_per_group * K_h * K_w))
+        weight_2d_exp = weight_2d.unsqueeze(0).expand(N, -1, -1)
+        weight_2d_exp_cln = weight_2d_exp.clone()
+        #output = torch.matmul(weight_2d, patches)
+        output = torch.matmul(weight_2d_exp_cln, patches)
     else:
         C_out_per_group = C_out // groups
         patches = patches.reshape(N, groups, C_in_per_group * K_h * K_w, H_out * W_out)
