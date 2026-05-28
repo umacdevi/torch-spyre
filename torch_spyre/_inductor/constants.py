@@ -53,7 +53,6 @@ SPYRE_FP32_OPS = [
     "exx2",
     "layernormnorm",
     "identity",
-    "overwrite",
     "topkvalue",
     "topkindex",
     "floor",
