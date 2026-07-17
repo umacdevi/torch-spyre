@@ -823,6 +823,56 @@ def bitwise_and(input1: torch.Tensor, input2: torch.Tensor) -> torch.Tensor:
         )
 
 
+def conv1d_to_conv2d_decomp(
+    input: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    stride: list[int],
+    padding: list[int],
+    dilation: list[int],
+    transposed: bool,
+    output_padding: list[int],
+    groups: int,
+) -> torch.Tensor:
+    """
+    Decompose 1D convolution into 2D convolution by unsqueezing spatial dimensions.
+    input: (N, C_in, L) → (N, C_in, 1, L)
+    weight: (C_out, C_in_per_group, K) → (C_out, C_in_per_group, 1, K)
+    Then invoke torch.conv2d with H set to 1, then squeeze the result.
+    """
+    if transposed:
+        raise Unsupported("conv1d: transposed convolution not supported")
+
+    if any(op != 0 for op in output_padding):
+        raise Unsupported("conv1d: output_padding not supported")
+
+    if input.dim() != 3:
+        raise Unsupported(f"conv1d: expected 3D input, got {input.dim()}D")
+
+    # Unsqueeze to 4D: (N, C, L) → (N, C, 1, L)
+    input_4d = input.unsqueeze(2)
+    weight_4d = weight.unsqueeze(2)
+
+    # Expand parameters to 2D: [s] → [1, s]
+    stride_4d = [1] + stride
+    padding_4d = [0] + padding
+    dilation_4d = [1] + dilation
+
+    # Call conv2d with H=1
+    output_4d = torch.conv2d(
+        input_4d,
+        weight_4d,
+        bias,
+        stride_4d,
+        padding_4d,
+        dilation_4d,
+        groups,
+    )
+
+    # Squeeze back to 3D: (N, C_out, 1, L_out) → (N, C_out, L_out)
+    return output_4d.squeeze(2)
+
+
 @register_spyre_decomposition([torch.ops.aten.convolution.default])
 def conv2d_via_bmm_decomp(
     input: torch.Tensor,
@@ -836,9 +886,10 @@ def conv2d_via_bmm_decomp(
     groups: int,
 ) -> torch.Tensor:
     """
-    Decompose 2D convolution into batch matrix multiplication using torch.nn.unfold.
-    torch.nn.unfold directly returns (N, C_in * K_h * K_w, H_out * W_out), avoiding
-    intermediate reshape/view/unsqueeze operations.
+    Decompose convolution into batch matrix multiplication using torch.nn.unfold.
+    For 1D convolution (3D input), delegate to conv1d_to_conv2d_decomp.
+    For 2D convolution, use torch.nn.unfold which returns (N, C_in * K_h * K_w, H_out * W_out),
+    avoiding intermediate reshape/view/unsqueeze operations.
     For depthwise convolutions (C_in = groups = C_out), invoke torch.spyre.conv2d directly.
     """
     if transposed:
@@ -846,6 +897,20 @@ def conv2d_via_bmm_decomp(
 
     if any(op != 0 for op in output_padding):
         raise Unsupported("conv2d_via_bmm: output_padding not supported")
+
+    # Handle 1D convolution
+    if input.dim() == 3:
+        return conv1d_to_conv2d_decomp(
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+            dilation,
+            transposed,
+            output_padding,
+            groups,
+        )
 
     if input.dim() != 4:
         raise Unsupported(f"conv2d_via_bmm: expected 4D input, got {input.dim()}D")
