@@ -530,25 +530,36 @@ def lower_bmm(x, y):
 
 @register_spyre_lowering(torch.ops.spyre.conv2d.default)
 def lower_convolution(x, w, bias, stride, padding, dilation, groups):
-    x = V.graph.get_buffer(x.realize())
-    w = V.graph.get_buffer(w.realize())
+    x.realize()
+    w.realize()
 
     x_loader = x.make_loader()
     w_loader = w.make_loader()
 
     # Input / weight shapes
-    N, C_in, H_in, W_in = x.get_size()
-    C_out, G, K_h, K_w = w.get_size()
+    # Note: Decomposition ensures both are 4D (conv1d tensors are reshaped by conv1d_to_conv2d_decomp)
+    x_size = x.get_size()
+    w_size = w.get_size()
 
-    H_in_padded = H_in + 2 * padding[0]
-    W_in_padded = W_in + 2 * padding[1]
+    N, C_in, H_in, W_in = x_size
+    C_out, G, K_h, K_w = w_size
+
+    pad_h = padding[0]
+    pad_w = padding[1]
+    stride_h = stride[0]
+    stride_w = stride[1]
+    dilation_h = dilation[0]
+    dilation_w = dilation[1]
+
+    H_in_padded = H_in + 2 * pad_h
+    W_in_padded = W_in + 2 * pad_w
 
     if C_out != C_in or C_in != groups:
         raise Unsupported(
             f"Input and output channels and groups should all be equal for depthwiseconv2d: {C_in}, {C_out}, {groups}"
         )
 
-    if tuple(padding) != (0, 0):
+    if (pad_h, pad_w) != (0, 0):
         raise Unsupported(
             f"Depthwise conv2d currently only supports zero padding; got padding={padding}. "
             "Support for non-zero padding requires changes to the Spyre runtime to handle "
@@ -556,32 +567,29 @@ def lower_convolution(x, w, bias, stride, padding, dilation, groups):
         )
 
     # Output spatial sizes
-    H_out = (H_in + 2 * padding[0] - K_h) // stride[0] + 1
-    W_out = (W_in + 2 * padding[1] - K_w) // stride[1] + 1
+    H_out = (H_in + 2 * pad_h - K_h) // stride_h + 1
+    W_out = (W_in + 2 * pad_w - K_w) // stride_w + 1
 
     def inner_fn(index, reduction_index):
-        # Output indices
+        # All inputs are 4D (conv1d tensors reshaped by decomposition)
         n, c, ho, wo = index
-        # Reduction indices: may be [kh, kw] or [kh, kw, g] depending on whether G is 1
         kh = reduction_index[0]
         kw = reduction_index[1]
         g = reduction_index[2] if len(reduction_index) > 2 else 0
 
         x_val = x_loader([n, c, ho, wo])
-
-        # Depthwise filter: one filter per input channel
         w_val = w_loader([c, g, kh, kw])
 
         return (x_val, w_val)
 
     op_info = {
         "conv_params": {
-            "stride_i": stride[0],
-            "stride_j": stride[1],
-            "pad_i": padding[0],
-            "pad_j": padding[1],
-            "dilation_i": dilation[0],
-            "dilation_j": dilation[1],
+            "stride_i": stride_h,
+            "stride_j": stride_w,
+            "pad_i": pad_h,
+            "pad_j": pad_w,
+            "dilation_i": dilation_h,
+            "dilation_j": dilation_w,
             "total_size_i": H_in_padded,
             "total_size_j": W_in_padded,
             "pad_dim_i": CONV2D_DIM_LABELS[2],
@@ -589,12 +597,13 @@ def lower_convolution(x, w, bias, stride, padding, dilation, groups):
             "window_dim_i": CONV2D_DIM_LABELS[-2],
             "window_dim_j": CONV2D_DIM_LABELS[-1],
             "pad_type": "padded_fullspan_wunneeded"
-            if (padding[0] == 0 and padding[1] == 0)
+            if (pad_h == 0 and pad_w == 0)
             else "padded_nozeropad",
         }
     }
 
     # Only include G in reduction_ranges if it's not 1 (size-1 dims get simplified away anyway)
+    ranges = [N, C_out, H_out, W_out]
     red_ranges = [K_h, K_w]
     if G != 1:
         red_ranges.append(G)
@@ -606,9 +615,8 @@ def lower_convolution(x, w, bias, stride, padding, dilation, groups):
         dst_dtype=x.get_dtype(),
         src_dtype=x.get_dtype(),
         inner_fn=inner_fn,
-        ranges=[N, C_out, H_out, W_out],
+        ranges=ranges,
         reduction_ranges=red_ranges,
-        # reduction_ranges=[K_h, K_w, G],
         op_info=op_info,
     )
 

@@ -592,14 +592,23 @@ def _(
     dilation: Sequence[int],
     groups: int = 1,
 ) -> torch.Tensor:
-    # Compute output shape: (N, C_out, H_out, W_out)
-    N, C_in, H_in, W_in = input.shape
-    C_out, C_in_g, kH, kW = weight.shape
+    # Handle both 1D (3D input) and 2D (4D input) convolutions
+    if input.dim() == 3:
+        # Conv1d: input (N, C, L), weight (C_out, C_in_g, K)
+        N, C_in, L_in = input.shape
+        C_out, C_in_g, kL = weight.shape
+        L_out = (L_in + 2 * padding[0] - dilation[0] * (kL - 1) - 1) // stride[0] + 1
+        output_shape = [N, C_out, L_out]
+        print(f"customop: input: {input} weight: {weight} stride: {stride} padding: {padding} output_shape: {output_shape}")
+    else:
+        # Conv2d: input (N, C, H, W), weight (C_out, C_in_g, kH, kW)
+        N, C_in, H_in, W_in = input.shape
+        C_out, C_in_g, kH, kW = weight.shape
 
-    H_out = (H_in + 2 * padding[0] - dilation[0] * (kH - 1) - 1) // stride[0] + 1
-    W_out = (W_in + 2 * padding[1] - dilation[1] * (kW - 1) - 1) // stride[1] + 1
+        H_out = (H_in + 2 * padding[0] - dilation[0] * (kH - 1) - 1) // stride[0] + 1
+        W_out = (W_in + 2 * padding[1] - dilation[1] * (kW - 1) - 1) // stride[1] + 1
+        output_shape = [N, C_out, H_out, W_out]
 
-    output_shape = [N, C_out, H_out, W_out]
     return input.new_empty(output_shape)
 
 

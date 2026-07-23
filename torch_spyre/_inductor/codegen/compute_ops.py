@@ -209,7 +209,7 @@ def gen_coord_info_value(
     conv_params=None,
 ):
     if conv_params is None:
-        conv_params = {"conv_padding": "nopad", "total_size": -1}
+        conv_params = {"conv_padding": "nopad", "total_size": size}
 
     return (
         {

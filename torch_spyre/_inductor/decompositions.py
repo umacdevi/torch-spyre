@@ -835,11 +835,10 @@ def conv1d_to_conv2d_decomp(
     groups: int,
 ) -> torch.Tensor:
     """
-    Decompose 1D convolution into 2D convolution by unsqueezing spatial dimensions.
-    input: (N, C_in, L) → (N, C_in, 1, L)
-    weight: (C_out, C_in_per_group, K) → (C_out, C_in_per_group, 1, K)
-    Then invoke torch.conv2d with H set to 1, then squeeze the result.
+    Decompose 1D convolution into 2D convolution via spyre.conv2d with 3D tensors.
+    The lowering function will recognize H=1 and handle the 3D case appropriately.
     """
+
     if transposed:
         raise Unsupported("conv1d: transposed convolution not supported")
 
@@ -849,28 +848,30 @@ def conv1d_to_conv2d_decomp(
     if input.dim() != 3:
         raise Unsupported(f"conv1d: expected 3D input, got {input.dim()}D")
 
-    # Unsqueeze to 4D: (N, C, L) → (N, C, 1, L)
-    input_4d = input.unsqueeze(2)
-    weight_4d = weight.unsqueeze(2)
+    N, C_in, L = input.shape
+    C_out, C_in_per_group, K = weight.shape
 
-    # Expand parameters to 2D: [s] → [1, s]
-    stride_4d = [1] + stride
-    padding_4d = [0] + padding
-    dilation_4d = [1] + dilation
+    stride_2d = [1] + stride
+    padding_2d = [0] + padding
+    dilation_2d = [1] + dilation
 
-    # Call conv2d with H=1
-    output_4d = torch.conv2d(
-        input_4d,
-        weight_4d,
-        bias,
-        stride_4d,
-        padding_4d,
-        dilation_4d,
-        groups,
+    # Materialize the 3D tensors into 4D to avoid ReinterpretView issues
+    # by creating fresh 4D views with proper strides
+    input_4d = input.reshape(N, C_in, 1, L)
+    weight_4d = weight.reshape(C_out, C_in_per_group, 1, K)
+
+    # Clone to force materialization (prevents Inductor from creating ReinterpretView)
+    input_4d = input_4d.clone()
+    weight_4d = weight_4d.clone()
+
+    result = torch.ops.spyre.conv2d(
+        input_4d, weight_4d, bias, stride_2d, padding_2d, dilation_2d, groups
     )
 
-    # Squeeze back to 3D: (N, C_out, 1, L_out) → (N, C_out, L_out)
-    return output_4d.squeeze(2)
+    # Reshape result back to 3D
+    N_out, C_out_result, _, L_out = result.shape
+    result_3d = result.reshape(N_out, C_out_result, L_out)
+    return result_3d
 
 
 @register_spyre_decomposition([torch.ops.aten.convolution.default])
