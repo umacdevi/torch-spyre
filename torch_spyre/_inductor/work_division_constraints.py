@@ -216,8 +216,21 @@ def conv_spatial_blocked_vars(ctx: WorkDivConstraintContext) -> ConstraintResult
     if not isinstance(op_info, dict):
         return ConstraintResult()
     conv_params = op_info.get("conv_params")
-    if not isinstance(conv_params, dict):
-        return ConstraintResult()
+    is_conv_op = isinstance(conv_params, dict)
+    if not is_conv_op:
+        # Pools record their geometry under "constants", not "conv_params", so
+        # they never reached this block -- yet the same reasoning applies: a
+        # strided pool's spatial split produces the same incorrect per-core
+        # addressing.  The SendNN reference for a split strided pool
+        # (maxpool_sltk, 1x64x16x16 k4 s5) splits only the OUTER spatial dim and
+        # leaves the innermost one whole (numWkSlicesPerDim_ i=3, j=1).
+        pool_params = op_info.get("constants")
+        if not isinstance(pool_params, dict) or "stride_w" not in pool_params:
+            return ConstraintResult()
+        conv_params = {
+            "stride_h": pool_params.get("stride_h", 1),
+            "stride_w": pool_params.get("stride_w", 1),
+        }
     # Depthwise conv2d (#3510) records stride as stride_i/stride_j; forward
     # conv2d (#3284) records it as stride_h/stride_w. Accept either spelling so
     # the strided-spatial-split block covers both direct-conv paths.
@@ -227,9 +240,15 @@ def conv_spatial_blocked_vars(ctx: WorkDivConstraintContext) -> ConstraintResult
         return ConstraintResult()
 
     write = typing.cast(MemoryDep, next(iter(op_read_writes(ctx.op).writes)))
+    # Conv blocks both output spatial dims; a strided pool only needs the
+    # INNERMOST one blocked.  The SendNN reference for a split strided pool
+    # (maxpool_sltk, 1x64x16x16 k4 s5) splits the outer spatial dim 3 ways and
+    # keeps the inner one whole -- numWkSlicesPerDim_ i=3, j=1 -- so blocking
+    # both would leave work division on the table for no correctness gain.
+    spatial = list(write.ranges)[-2:] if is_conv_op else list(write.ranges)[-1:]
     blocked = {
         sym
-        for sym in list(write.ranges)[-2:]
+        for sym in spatial
         if isinstance(sym, Symbol)
         and sym in ctx.it_space
         and concretize_expr(ctx.it_space[sym]) > 1
