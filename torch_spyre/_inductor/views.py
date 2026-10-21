@@ -741,9 +741,9 @@ def normalize_coordinates(
             # any (dim, coordinate) pair encodes.  It provably does not when
             # the pair is densely packed (``den == term.den * term.dim_size``),
             # the inner term skips no elements (``num == 1``), and the outer
-            # term carries no offset -- the outer offset counts in units of the
-            # outer ``den`` and is not rescaled when ``den`` shrinks on fusion.
-            # Adjacent terms keep the historical predicate unchanged.
+            # term carries no offset (kept conservative: the outer offset counts
+            # in units of the outer ``den``; fusion below rescales it by the
+            # inner dim size). Adjacent terms keep the historical predicate.
             and (
                 not skipped_placeholder
                 or (
@@ -753,11 +753,13 @@ def normalize_coordinates(
                 )
             )
         ):
-            # fuse terms
+            # fuse terms; the fused coordinate is outer * inner_size + inner,
+            # so the outer offset is scaled by the inner dim size (an outer
+            # offset of 1 over an inner dim of size 2 is 2 fused rows, not 1).
             fused_term.num = term.num
             fused_term.den = term.den
+            fused_term.offset = fused_term.offset * term.dim_size + term.offset
             fused_term.dim_size *= term.dim_size
-            fused_term.offset += term.offset
         else:
             if fused_term.dim_size > 1 or fused_term.var is not None:
                 fused_terms.append(fused_term)

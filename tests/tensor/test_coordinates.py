@@ -1020,6 +1020,29 @@ class TestNormalizeCoordinatesFusion(TestCase):
         )
         self.assertEqual([int(t.dim_size) for t in terms], [32, 64])
 
+    def test_adjacent_fusion_scales_outer_offset(self):
+        """An outer offset is scaled by the inner dim size when the pair fuses.
+
+        Slicing rows ``[8:24]`` of a ``[16, 2, 64]`` buffer viewed as 32 rows
+        (a depth-to-space output) gives the outer coordinate ``4 + ...``. Fused
+        into one 32-row dim that is row 8, not row 4: adding the offsets
+        unscaled read the slice from the wrong rows.
+        """
+        k = sympy.Symbol("c1")
+        terms = self._normalize(
+            {k: 1024},
+            [16, 2, 64],
+            [
+                4 + sympy.floor(k / 128),
+                sympy.floor(sympy.Mod(k, 128) / 64),
+                sympy.Mod(k, 64),
+            ],
+        )
+        self.assertEqual([int(t.dim_size) for t in terms], [32, 64])
+        addr = self._addr(terms)
+        for val in (0, 1, 63, 64, 127, 128, 1023):
+            self.assertEqual(int(addr.subs({k: val})), 512 + val)
+
 
 if __name__ == "__main__":
     run_tests()
