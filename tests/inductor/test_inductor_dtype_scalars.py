@@ -657,14 +657,8 @@ class TestNegativeScalarOperations:
         elif expected_behavior == "overflow_or_large":
             assert torch.isinf(result).any() or result.abs().max() > 60000
 
-    def test_int_tensor_float_scalar_promotion(self, request, execution_mode):
+    def test_int_tensor_float_scalar_promotion(self, execution_mode):
         """Int tensor + float scalar promotes to float."""
-        strict_xfail(
-            request,
-            AssertionError,
-            "an int64 tensor plus a float scalar returns int64 with the scalar "
-            "dropped (#5363)",
-        )
 
         def int_float_add(x):
             return x + 0.5
@@ -745,14 +739,6 @@ class TestNegativeScalarOperations:
         assert result.shape == x.shape
         assert result.requires_grad
 
-    # Non-strict: the outcome depends on the deeptools build. It passes on deeptools
-    # main and fails on the older build CI uses, with "In-device copy not
-    # implemented" (#1558). Make it a plain test once CI is on main.
-    @pytest.mark.xfail(
-        strict=False,
-        reason="RuntimeError: In-device copy not implemented (#1558); passes on "
-        "deeptools main, fails on the older build",
-    )
     def test_inplace_scalar_operation(self, execution_mode):
         """In-place multiply by scalar."""
 
