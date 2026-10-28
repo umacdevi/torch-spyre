@@ -666,14 +666,12 @@ def lower_depthwise_conv2d(x, w, stride, padding, dilation, groups):
             f"Input and output channels and groups should all be equal for depthwiseconv2d: {C_in}, {C_out}, {groups}"
         )
 
-    '''
     if tuple(padding) != (0, 0):
         raise Unsupported(
             f"Depthwise conv2d currently only supports zero padding; got padding={padding}. "
             "Support for non-zero padding requires changes to the Spyre runtime to handle "
             "non-zero tensor allocation addresses."
         )
-    '''
 
     if tuple(dilation) != (1, 1):
         raise Unsupported(
