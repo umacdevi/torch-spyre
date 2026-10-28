@@ -894,6 +894,49 @@ def _align_conv2d_dim_labels(
     return [label for idx, (label, _) in enumerate(candidates) if idx not in dropped]
 
 
+def _absorbed_window_padding(
+    total: int, span: int, pad: int, stride: int, window: str
+) -> dict:
+    """``paddingSizes_`` entry for a symmetrically padded pool window axis.
+
+    ``total`` is the padded extent ``in + 2*pad`` and ``span`` the extent the
+    windows actually read.  The difference is ``unneededPad_``, which DeepTools
+    absorbs from padBack_, then the valid region, then padFront_
+    (perfDscToSdsc.cpp:879-894; same order as ``_conv2d_sdsc_fields``), so the
+    emitted padFront_/padBack_ are the post-absorption residuals.  E.g. in=128
+    k4 s4 p1: total 130, span 128 -> padFront_ 1, padBack_ 0, unneededPad_ 2,
+    unneededPadBack_ 1.
+    """
+    unneeded = total - span
+    if unneeded < 0:
+        raise ValueError(
+            f"pool window span {span} exceeds the padded input extent {total}"
+        )
+    pad_front, pad_back = pad, pad
+    valid = total - 2 * pad
+    unneeded_front = unneeded_back = 0
+    remaining = unneeded
+    take = min(pad_back, remaining)
+    pad_back -= take
+    unneeded_back += take
+    remaining -= take
+    remaining -= min(valid, remaining)
+    take = min(pad_front, remaining)
+    pad_front -= take
+    unneeded_front += take
+    return {
+        "padFront_": pad_front,
+        "padBack_": pad_back,
+        "unneededPad_": unneeded,
+        "unneededPadFront_": unneeded_front,
+        "unneededPadBack_": unneeded_back,
+        "totalSize_": total,
+        "stride_": stride,
+        "dilation_": 1,
+        "windowDim_": window,
+    }
+
+
 def _avgpool_sdsc_fields(
     iteration_space: dict, pool_params: dict, dim_splits: dict | None = None
 ) -> dict:
@@ -942,6 +985,28 @@ def _avgpool_sdsc_fields(
         # unneededPad_=4).  Fall back to the span when the lowering supplied no
         # extent (older callers, conv paths).
         in_declared = pool_params.get(f"in_{'h' if spatial == 'i' else 'w'}")
+        window_dims.add(window)
+        if p > 0:
+            # A padded axis follows the DeepTools contract for windowed padding
+            # (golden ddc/ddl_templates/test/sdsc_maxpool.json): the HBM input
+            # stays UNPADDED and is tagged padded_nozeropad, while totalSize_ and
+            # the input coordinates span the padded extent ``in + 2p``.  The
+            # scheduler fills the LX pad lanes from the ``padval`` constant (see
+            # isZeroPadded in compute_ops._memorg_extra).
+            # The lowering's in_h/in_w may be sympy Integers; the padded extent
+            # cannot be recovered from the span, so require it.
+            if in_declared is None:
+                raise ValueError(
+                    f"padded pool axis {spatial} needs the input extent "
+                    "(pool_params in_h/in_w)"
+                )
+            in_size = int(in_declared)
+            padding_sizes[spatial] = _absorbed_window_padding(
+                in_size + 2 * p, span, p, s, window
+            )
+            input_coord_padding[spatial] = "padded_nozeropad"
+            input_coord_sizes[spatial] = in_size + 2 * p
+            continue
         in_size = span
         if isinstance(in_declared, int) and in_declared > span:
             in_size = in_declared
@@ -955,7 +1020,6 @@ def _avgpool_sdsc_fields(
             "dilation_": 1,
             "windowDim_": window,
         }
-        window_dims.add(window)
         input_coord_padding[spatial] = fullspan
         input_coord_sizes[spatial] = in_size
 
@@ -989,6 +1053,13 @@ def _avgpool_sdsc_fields(
             per_core = dict(entry)
             per_core["padFront_"] = -1
             per_core["padBack_"] = -1
+            if input_coord_padding.get(spatial) == "padded_nozeropad":
+                # A padded split axis carries no per-core slack: each core reads
+                # exactly its window span, halo included (golden sdsc_maxpool.json
+                # pc i: totalSize_ 15 = (7-1)*1 + 9, unneededPad_ 0).
+                unneeded = 0
+                per_core["unneededPadFront_"] = 0
+                per_core["unneededPadBack_"] = 0
             per_core["totalSize_"] = span_pc + unneeded
             per_core["unneededPad_"] = unneeded
             padding_sizes_per_core[spatial] = per_core
@@ -2588,6 +2659,11 @@ def parse_op_spec(op_spec: OpSpec) -> tuple["SDSCSpec", "dict"]:
             constants = {"nmap": pool_constants["scaling_factor"]}
         else:
             constants = {}
+        # ``padval`` is the value the DeepTools scheduler fills the LX pad lanes
+        # with (dsc2.cpp, looked up by name in constantInfo_; default 0).  A
+        # padded maxpool needs the max identity rather than 0.
+        if "padval" in pool_constants:
+            constants["padval"] = pool_constants["padval"]
     else:
         constants = (
             dict(op_spec.op_info.get("constants", {})) if op_spec.op_info else {}

@@ -114,6 +114,16 @@ disable_conv2d_spatial_split: bool = (
     os.environ.get("SPYRE_INDUCTOR_DISABLE_CONV2D_SPATIAL_SPLIT", "1") == "1"
 )
 
+# Allow splitting a padded pool's padded output spatial dims across cores, as
+# long as each core keeps more outputs than the pad (the DeepTools rule,
+# dynamicWksetOpt.cpp).  A core slice starting after the front pad needs a
+# DeepTools build with the symbolic start-address fix in dsc2.cpp
+# addConstOffsetToStartAddr; without it dbo-opt fails with an undeclared symbol.
+# Off by default: padded spatial dims then stay whole on each core.
+pool_padded_spatial_split: bool = (
+    os.environ.get("SPYRE_POOL_PADDED_SPATIAL_SPLIT", "0") == "1"
+)
+
 # Opt-in OpSpec->KTIR emitter (experimental, #3380). When enabled the scheduler
 # emits ``async_compile.ktir(...)`` instead of the SDSC bundle, and
 # ``create_tensor_arg`` populates the op-spec buffer name so the emitter has a
