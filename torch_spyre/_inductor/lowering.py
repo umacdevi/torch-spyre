@@ -14,7 +14,6 @@
 
 
 import operator
-import os
 import logging
 import math
 import threading
@@ -970,10 +969,8 @@ def _pool2d_pair(value, default=None):
     return h, w
 
 
-# Value that will fill the explicitly-materialized max_pool2d pad halo.
-#
-# Currently referenced only from the commented-out halo call in
-# lower_max_pool2d_with_indices (padding is gated off there -- see that comment).
+# Value the DeepTools scheduler fills a padded max_pool2d's LX pad lanes with
+# (the ``padval`` constant; see lower_max_pool2d_with_indices).
 _MAX_POOL_PAD_VALUE = FP16_MIN
 
 
@@ -1021,10 +1018,11 @@ def _lower_pool2d(
     Shared by ``lower_avg_pool2d`` (``avgpoolfwd``) and
     ``lower_max_pool2d_with_indices`` (``maxpoolfwd``).
 
-    ``padding`` must already be zero here -- callers that support padding
-    materialize it into ``x`` first (see ``lower_max_pool2d_with_indices``),
-    because the SDSC pad lanes are ``NOZEROPAD`` and so carry adjacent HBM
-    contents rather than a reduction identity.
+    ``padding`` is symmetric per axis and is NOT materialized: ``x`` stays
+    unpadded in HBM and the DeepTools scheduler fills the LX pad lanes on chip
+    (codegen emits ``padded_nozeropad`` + lx ``isZeroPadded``).  The fill value
+    is the ``padval`` entry of ``constants`` (DeepTools default 0), so a caller
+    whose reduction identity is not 0 must supply it.
 
     Returns ``None`` if the kernel is degenerate along either axis (``k == 1``),
     letting the caller delegate to an in-tree lowering: ``op`` is a *windowed*
@@ -1037,47 +1035,14 @@ def _lower_pool2d(
     kH, kW = _pool2d_pair(kernel_size)
     sH, sW = _pool2d_pair(stride, default=kernel_size)
     pH, pW = _pool2d_pair(padding, default=0)
-    assert pH == 0 and pW == 0, (
-        f"_lower_pool2d requires padding to be materialized by the caller; "
-        f"got pad_h={pH}, pad_w={pW}"
-    )
 
     if kH == 1 or kW == 1:
         return None
 
     N, C, H_in, W_in = x.get_size()
 
-    H_out = (H_in - kH) // sH + 1
-    W_out = (W_in - kW) // sW + 1
-
-    # A pool whose batch is 2 or more AND whose output has a size-1 spatial
-    # extent reads from the WRONG BATCH: output batch n takes its window from
-    # another batch's image.  The SDSC compiles and the values are real input
-    # elements, so this is invisible without a positional-ramp input -- raise
-    # rather than fall back, because a silent wrong answer is what this guard
-    # exists to prevent.
-    #
-    # ``x.get_size()`` yields sympy Integers, so ``isinstance(N, int)`` is False
-    # even for a static batch -- concretize instead, and treat a genuinely
-    # symbolic batch as potentially > 1.
-    from .pass_utils import concretize_expr
-
-    try:
-        n_batch: int | None = int(concretize_expr(N))
-    except (TypeError, ValueError):
-        n_batch = None
-    if (
-        (H_out == 1 or W_out == 1)
-        and (n_batch is None or n_batch > 1)
-        and os.environ.get("TORCH_SPYRE_POOL_UNSAFE") != "1"
-    ):
-        raise Unsupported(
-            f"pool with batch={n_batch if n_batch is not None else N} "
-            f"and a size-1 spatial output "
-            f"({H_out}x{W_out}) is not supported: the output reads from the "
-            "wrong batch. Batch 1 is correct at any geometry, and batch > 1 is "
-            "correct when both spatial output extents exceed 1."
-        )
+    H_out = (H_in + 2 * pH - kH) // sH + 1
+    W_out = (W_in + 2 * pW - kW) // sW + 1
 
     pool_params = {
         "kernel_h": kH,
@@ -1102,6 +1067,12 @@ def _lower_pool2d(
     def inner_fn(index, reduction_index):
         n, c, ho, wo = index
         kh, kw = reduction_index
+        # The window origin deliberately omits the ``-pad`` shift.  The SDSC's
+        # paddingSizes_ / padded_nozeropad coordinates determine the real
+        # addressing (pad lanes filled on chip with padval); this index only
+        # feeds layout/coordinate analysis, which cannot represent a negative
+        # constant offset ("Unsupported coordinate expression -c0/32").  The
+        # depthwise conv lowering's inner_fn is schematic in the same way.
         hi = ho * sH + kh
         wi = wo * sW + kw
         return x.make_loader()([n, c, hi, wi])
@@ -1230,32 +1201,15 @@ def lower_max_pool2d_with_indices(
             x, [kH, kW], [sH, sW], [pH, pW], [dH, dW], ceil_mode
         )
 
-    pooled_input = x
-    if pH > 0 or pW > 0:
-        # The intended implementation is the explicit halo below: the SDSC pad
-        # lanes are NOZEROPAD (_memorg_extra emits isPadded=1/isZeroPadded=0), so
-        # a padded pool read span pulls adjacent HBM rather than an identity
-        # value -- for a max reduction any such lane that exceeds the real window
-        # would win.  There is no -inf pad-fill PadType, so the halo has to be
-        # materialized with the max identity and the pool itself run unpadded.
-        # (The fill is _FP16_MIN, not float("-inf"), for the same reason codegen
-        # uses it for _get_mask_value("max"): -inf encodes as NaN through this
-        # path, and max(x, NaN) == NaN would poison the whole reduction rather
-        # than just the padded lanes.)
-        #
-        # It is gated off because materializing that halo is not yet expressible.
-        # The one line to restore when that is fixed:
-        #   pooled_input = lower_constant_pad_nd(
-        #       x, [pW, pW, pH, pH], _MAX_POOL_PAD_VALUE
-        #   )
-        raise Unsupported(
-            f"max_pool2d padding={(pH, pW)} not yet supported: the pad halo "
-            "cannot be materialized on the physically-NHWC pool input "
-            "(constant_pad_nd on a permuted NCHW view yields an unsupported "
-            "stick expression)"
-        )
-
-    values = _lower_pool2d(MAXPOOL2D_OP, pooled_input, (kH, kW), (sH, sW), (0, 0))
+    # Padding is filled on chip by the DeepTools scheduler (see _lower_pool2d)
+    # with the padval constant, which must be the max identity.  It is
+    # _MAX_POOL_PAD_VALUE (FP16_MIN), not float("-inf"), for the same reason
+    # codegen uses it for _get_mask_value("max"): -inf encodes as NaN through
+    # this path, and max(x, NaN) == NaN would poison the whole window.
+    constants = {"padval": _MAX_POOL_PAD_VALUE} if (pH > 0 or pW > 0) else None
+    values = _lower_pool2d(
+        MAXPOOL2D_OP, x, (kH, kW), (sH, sW), (pH, pW), constants=constants
+    )
     assert values is not None, "k==1 window handled above"
 
     # aten.max_pool2d_with_indices is two-output, so the lowering must return a
