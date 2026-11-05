@@ -1113,8 +1113,16 @@ def lower_avg_pool2d(
     sH, sW = _pool2d_pair(stride, default=kernel_size)
     pH, pW = _pool2d_pair(padding if padding else 0)
 
-    if pH > 0 or pW > 0:
-        raise Unsupported("avg_pool2d with non-zero padding not yet supported")
+    if pH < 0 or pW < 0:
+        raise Unsupported(f"avg_pool2d negative padding={(pH, pW)}")
+    if pH > kH // 2 or pW > kW // 2:
+        # Matches aten's own check: pad must not exceed half the kernel.
+        raise Unsupported(
+            f"avg_pool2d padding={(pH, pW)} too large for kernel {(kH, kW)}"
+        )
+    # Padding is filled on chip with the default padval 0 (see _lower_pool2d).
+    # With count_include_pad the pad lanes count toward the divisor, so the
+    # mean multiplier stays 1 / (kH * kW).
 
     result = _lower_pool2d(
         AVGPOOL2D_OP,
