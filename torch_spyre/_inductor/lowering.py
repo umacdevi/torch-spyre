@@ -1044,6 +1044,23 @@ def _lower_pool2d(
     H_out = (H_in + 2 * pH - kH) // sH + 1
     W_out = (W_in + 2 * pW - kW) // sW + 1
 
+    # inner_fn reads ``ho * s + kh`` without the ``-pad`` shift, so on a padded
+    # axis with ``out * s > in`` the index runs past the input extent and
+    # views.py splits it into a second coordinate (codegen then fails with
+    # "pool dim label count ... does not match iteration-space rank").  An
+    # unpadded axis with stride > kernel overshoots too, but views.py clamps
+    # that residual, so only padded axes are rejected.
+    # TODO: support this by giving views.py per-dim window coordinates.
+    for axis, pad, out, s, size in (
+        ("H", pH, H_out, sH, H_in),
+        ("W", pW, W_out, sW, W_in),
+    ):
+        if pad > 0 and out * s > size:
+            raise Unsupported(
+                f"{op} padding={(pH, pW)}: padded {axis} axis reads past the "
+                f"input (out {out} * stride {s} > in {size})"
+            )
+
     pool_params = {
         "kernel_h": kH,
         "kernel_w": kW,

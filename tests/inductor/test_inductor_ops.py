@@ -8721,6 +8721,14 @@ class TestOps(unittest.TestCase, metaclass=ParameterizedTestMeta):
                 "1x3x24x24": (cached_randn((1, 3, 24, 24)),),
                 "2x3x8x8": (cached_randn((2, 3, 8, 8)),),
             },
+            # k2s2p1 always has out * stride > in on a padded axis, which the
+            # pool lowering rejects (see _lower_pool2d).  TODO: make these
+            # positive cases once views.py supports per-dim window coordinates.
+            "expect_raise": {
+                "k2s2p1_1x3x8x8": "padded H axis reads past the input",
+                "k2s2p1_1x3x24x24": "padded H axis reads past the input",
+                "k2s2p1_2x3x8x8": "padded H axis reads past the input",
+            },
         },
         # max_pool2d lowers to a native maxpoolfwd SDSC (lower_max_pool2d_with_indices).
         # Coverage mirrors avg_pool2d because both share the one pool datapath.
@@ -8744,6 +8752,15 @@ class TestOps(unittest.TestCase, metaclass=ParameterizedTestMeta):
                 "2x3x8x8": (cached_randn((2, 3, 8, 8)),),
                 # C=64 == one full stick, the aligned-channel case.
                 "1x64x8x8": (cached_randn((1, 64, 8, 8)),),
+            },
+            # k2s2p1 always has out * stride > in on a padded axis, which the
+            # pool lowering rejects (see _lower_pool2d).  TODO: make these
+            # positive cases once views.py supports per-dim window coordinates.
+            "expect_raise": {
+                "k2s2p1_1x3x8x8": "padded H axis reads past the input",
+                "k2s2p1_1x3x24x24": "padded H axis reads past the input",
+                "k2s2p1_2x3x8x8": "padded H axis reads past the input",
+                "k2s2p1_1x64x8x8": "padded H axis reads past the input",
             },
         },
         ("test_repeat", "test_repeat_cpu"): {
